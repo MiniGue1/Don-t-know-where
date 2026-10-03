@@ -5,14 +5,31 @@ import { visitedIds, streakDays } from "./stats.js";
 
 const ADJ = ["Wandering", "Curious", "Speedy", "Lost", "Sneaky", "Brave", "Sleepy", "Wild", "Jolly", "Restless", "Lucky", "Dizzy"];
 const ANIMAL = ["Otter", "Fox", "Moose", "Badger", "Goat", "Owl", "Panda", "Hedgehog", "Llama", "Raccoon", "Yak", "Penguin"];
-export const AVATARS = ["🦦", "🦊", "🫎", "🦡", "🐐", "🦉", "🐼", "🦔", "🦙", "🦝", "🐧", "🐢", "🐸", "🦄"];
+// Avatar = a colour; shown as a circle with the nickname's initials.
+export const AVATAR_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#4f46e5", "#be123c"];
+const isColor = (c) => typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c);
+
+/** Stable colour for an id (used when a card carries no valid colour). */
+export function colorFor(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+export const initials = (name) =>
+  String(name || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => [...w][0].toUpperCase())
+    .join("");
 
 export function newIdentity(rand = Math.random) {
   const pick = (a) => a[Math.floor(rand() * a.length)];
   return {
     id: Array.from({ length: 10 }, () => Math.floor(rand() * 36).toString(36)).join(""),
     name: `${pick(ADJ)} ${pick(ANIMAL)}`,
-    avatar: pick(AVATARS),
+    avatar: pick(AVATAR_COLORS),
   };
 }
 
@@ -81,7 +98,7 @@ export function decodeCard(code) {
   return {
     id: o.i.slice(0, 20),
     name: o.n.slice(0, 32),
-    avatar: typeof o.a === "string" ? o.a.slice(0, 4) : "🙂",
+    avatar: isColor(o.a) ? o.a : colorFor(o.i),
     stats: { weekKm: n(o.wk), weekKcal: n(o.wc), places: n(o.p), streak: n(o.s), totalKm: n(o.tk), week: n(o.w) },
     updatedAt: n(o.u),
   };
@@ -96,9 +113,9 @@ export function extractCode(text) {
 }
 
 export const BOARDS = {
-  weekKm: { id: "weekKm", label: "This week", unit: "km", weekly: true, hint: "km on foot or bike" },
-  places: { id: "places", label: "Explorer", unit: "places", hint: "different places discovered" },
-  streak: { id: "streak", label: "Streak", unit: "days", hint: "days in a row" },
+  weekKm: { id: "weekKm", label: "Week", unit: "km", weekly: true, hint: "km on foot or bike" },
+  places: { id: "places", label: "Places", unit: "", hint: "different places discovered" },
+  streak: { id: "streak", label: "Streak", unit: "d", hint: "days in a row" },
   weekKcal: { id: "weekKcal", label: "Calories", unit: "kcal", weekly: true, hint: "burned this week" },
 };
 

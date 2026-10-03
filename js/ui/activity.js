@@ -2,7 +2,7 @@
 
 import { $, L, esc, toast, state, settings, store, layers, fitTo, views, showView, shareStuff, downloadFile } from "../app.js";
 import { MODES, formatSpeed } from "../modes.js";
-import { CATEGORIES } from "../places.js";
+import { icon } from "../icons.js";
 import { records } from "../stats.js";
 import { formatDistance, formatDuration, pathLength } from "../geo.js";
 import { parseFile, parseMapLink } from "../importers.js";
@@ -22,11 +22,11 @@ export function guessMode(kmh) {
 function render() {
   const history = store.getHistory();
   const r = records(history);
+  $("#history-summary").hidden = !history.length;
   $("#history-summary").innerHTML = [
-    [r.trips, "outings"],
     [r.placesVisited, "places"],
-    [formatDistance(r.totalDistance), "travelled"],
-    [`${r.streakDays}🔥`, "day streak"],
+    [formatDistance(r.totalDistance), "total"],
+    [r.streakDays, r.streakDays === 1 ? "day streak" : "days streak"],
   ]
     .map(([v, l]) => `<div class="stat"><span class="stat-v">${esc(v)}</span><span class="stat-l">${l}</span></div>`)
     .join("");
@@ -37,7 +37,7 @@ function render() {
     .map(
       (rt) => `<div class="card" data-route="${esc(rt.id)}">
       <div class="card-top">
-        <span class="card-icon">🧷</span>
+        <span class="card-icon">${icon("route-2")}</span>
         <div class="grow">
           <h3>${esc(rt.name)}</h3>
           <div class="meta">${formatDistance(rt.length)} · from ${esc(rt.source)}</div>
@@ -45,15 +45,15 @@ function render() {
       </div>
       <div class="actions">
         <button type="button" class="btn primary grow" data-follow="${esc(rt.id)}">Go</button>
-        <button type="button" class="btn" data-share-route="${esc(rt.id)}">Share</button>
-        <button type="button" class="btn ghost danger" data-del-route="${esc(rt.id)}" aria-label="Delete route">🗑</button>
+        <button type="button" class="icon-btn" data-share-route="${esc(rt.id)}" aria-label="Share route">${icon("share")}</button>
+        <button type="button" class="icon-btn" data-del-route="${esc(rt.id)}" aria-label="Delete route">${icon("trash")}</button>
       </div>
     </div>`
     )
     .join("");
 
   if (!history.length) {
-    $("#history-list").innerHTML = `<div class="empty">No outings yet.<br/>Tap <b>Go</b>, pick how you're moving, and head somewhere new.</div>`;
+    $("#history-list").innerHTML = `<div class="empty">Nothing here yet.</div>`;
     return;
   }
   $("#history-list").innerHTML = history
@@ -62,21 +62,16 @@ function render() {
       const sp = formatSpeed(t.mode, t.avgSpeedKmh);
       const parts = [
         formatDistance(t.distance),
-        t.travelSec != null ? formatDuration(t.travelSec) : "didn't arrive",
+        t.travelSec != null ? formatDuration(t.travelSec) : null,
         `${sp.value} ${sp.unit}`,
-        t.kcal != null ? `${t.kcal} kcal` : null,
       ].filter(Boolean);
       return `<div class="card" data-trip="${esc(t.id)}">
         <div class="card-top">
-          <span class="card-icon">${MODES[t.mode]?.icon || "📍"}</span>
+          <span class="card-icon">${icon(MODES[t.mode]?.icon || "walk")}</span>
           <div class="grow">
             <h3>${esc(t.place.name)}</h3>
-            <div class="meta">${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}${
-        t.arrived && t.dwellSec ? ` · stayed ${formatDuration(t.dwellSec)}` : ""
-      }</div>
-            <div class="meta">${esc(parts.join(" · "))}</div>
+            <div class="meta">${d.toLocaleDateString([], { day: "numeric", month: "short" })} · ${esc(parts.join(" · "))}</div>
           </div>
-          <span class="card-icon">${CATEGORIES[t.place.category]?.icon || ""}</span>
         </div>
       </div>`;
     })
@@ -182,7 +177,7 @@ export function importItems(items, source) {
 }
 
 function reportImport({ activities, routes }) {
-  if (!activities && !routes) return toast("Nothing new found in that file.");
+  if (!activities && !routes) return toast("Nothing new in that file");
   const parts = [];
   if (activities) parts.push(`${activities} activit${activities === 1 ? "y" : "ies"}`);
   if (routes) parts.push(`${routes} route${routes === 1 ? "" : "s"}`);
@@ -228,7 +223,7 @@ async function geocode(query) {
 $("#import-link-btn").addEventListener("click", async () => {
   const input = $("#import-link").value;
   const parsed = parseMapLink(input);
-  if (!parsed) return toast("Paste a full Google Maps directions link (google.com/maps/dir/…) or a Mapy.com place link.", 4500);
+  if (!parsed) return toast("Paste a full Google Maps directions link", 3500);
   try {
     let stops = await Promise.all(parsed.stops.map((s) => (s.query ? geocode(s.query) : s)));
     if (stops.length === 1 && state.position) stops = [{ ...state.position }, stops[0]];

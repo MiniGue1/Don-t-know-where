@@ -2,7 +2,6 @@
 
 import { $, L, esc, toast, state, settings, store, layers, pinIcon, fitTo, views, showView, drawSpeedTrack, downloadFile, kcalFor } from "../app.js";
 import { MODES, formatSpeed } from "../modes.js";
-import { CATEGORIES } from "../places.js";
 import { directionsUrl, PROVIDERS } from "../maplinks.js";
 import { TripTracker } from "../tracker.js";
 import { distance, formatDistance, formatDuration } from "../geo.js";
@@ -25,6 +24,7 @@ export function startTrip(place, mode, routePoints) {
   drawTripLayers();
   fitTo([state.position, place, ...(t.plannedRoute || [])]);
   requestWakeLock();
+  toast("Keep the app open to record your route", 3500);
   if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
 }
 
@@ -46,22 +46,13 @@ export function drawTripLayers() {
   drawSpeedTrack(track, layers.trip);
 }
 
-/** Live calorie estimate for the trip so far. */
-function liveKcal(t, now) {
-  const arrivedAt = t.arrivedAt ?? now;
-  const travelSec = (arrivedAt - t.startedAt) / 1000;
-  const dist = t.arrived ? t.distanceToArrival : t.distance;
-  const bpms = t.hr.map((h) => h[1]);
-  return kcalFor({
-    mode: t.mode,
-    travelSec,
-    dwellSec: t.arrived ? (now - t.arrivedAt) / 1000 : 0,
-    avgSpeedKmh: travelSec > 0 ? (dist / travelSec) * 3.6 : 0,
-    avgHr: bpms.length ? bpms.reduce((a, b) => a + b, 0) / bpms.length : null,
-    startedAt: t.startedAt,
-    endedAt: now,
-  });
-}
+const clock = (sec) => {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const ss = String(sec % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${ss}` : `${m}:${ss}`;
+};
 
 export function renderTrip() {
   const t = state.trip;
@@ -70,34 +61,33 @@ export function renderTrip() {
   const p = t.place;
   const now = Date.now();
   $("#trip-place").textContent = p.name;
-  $("#trip-kind").textContent = `${p.kind} · ${MODES[t.mode].icon} ${MODES[t.mode].label}`;
-  $("#trip-icon").textContent = p.mystery ? "❓" : CATEGORIES[p.category]?.icon || "📍";
   const status = $("#trip-status");
   const dwell = t.arrived ? t.dwellSec + (t._lastNear != null ? (now - t._lastNear) / 1000 : 0) : 0;
-  status.textContent = t.arrived ? `You're there 🎉 · ${formatDuration(dwell)}` : "On the way";
+  status.textContent = t.arrived ? `Arrived · here for ${formatDuration(dwell)}` : `${MODES[t.mode].label} · on the way`;
   status.classList.toggle("arrived", t.arrived);
 
   const rem = state.position ? distance(state.position, p) : t.remaining();
-  $("#trip-remaining").textContent = t.arrived ? "✓" : rem != null ? formatDistance(rem) : "–";
-  $("#trip-elapsed").textContent = formatDuration((now - t.startedAt) / 1000);
+  $("#trip-remaining").textContent = t.arrived ? "0 m" : rem != null ? formatDistance(rem) : "–";
+  $("#trip-elapsed").textContent = clock((now - t.startedAt) / 1000);
   const travelSec = ((t.arrivedAt ?? now) - t.startedAt) / 1000;
   const dist = t.arrived ? t.distanceToArrival : t.distance;
   const sp = formatSpeed(t.mode, travelSec > 5 && dist > 0 ? (dist / travelSec) * 3.6 : 0);
   $("#trip-speed").textContent = sp.value;
-  $("#trip-speed-unit").textContent = `avg ${sp.unit}`;
-  $("#trip-kcal").textContent = liveKcal(t, now);
+  $("#trip-speed-unit").textContent = sp.unit;
   $("#here-btn").hidden = t.arrived;
 
   const from = state.position;
   const via = p.via || [];
-  const providers = [settings.provider, ...Object.keys(PROVIDERS).filter((x) => x !== settings.provider)];
-  const html = providers
-    .map(
-      (id, i) =>
-        `<a class="btn${i === 0 ? " primary" : ""}" target="_blank" rel="noopener" href="${esc(directionsUrl(id, from, p, t.mode, via))}">${PROVIDERS[id].label}</a>`
-    )
-    .join("");
-  if ($("#nav-links").innerHTML !== html) $("#nav-links").innerHTML = html;
+  const main = $("#nav-main");
+  const href = directionsUrl(settings.provider, from, p, t.mode, via);
+  if (main.getAttribute("href") !== href) {
+    main.setAttribute("href", href);
+    main.textContent = `Navigate in ${PROVIDERS[settings.provider].label}`;
+    $("#nav-alt").innerHTML = Object.keys(PROVIDERS)
+      .filter((id) => id !== settings.provider)
+      .map((id) => `<a target="_blank" rel="noopener" href="${esc(directionsUrl(id, from, p, t.mode, via))}">${PROVIDERS[id].label}</a>`)
+      .join("");
+  }
 }
 
 export function onTripFix(fix) {
@@ -120,7 +110,7 @@ export function onHeartRate(bpm) {
 
 function announceArrival() {
   const name = state.trip.place.name;
-  toast(`You made it to ${name}! Time there is being recorded.`, 4000);
+  toast(`You made it to ${name}`, 3500);
   navigator.vibrate?.([120, 60, 120]);
   if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
     try {
@@ -158,7 +148,7 @@ $("#course-btn").addEventListener("click", () => {
   if (!t) return;
   const pts = t.plannedRoute?.length ? t.plannedRoute.map(([lat, lng]) => ({ lat, lng })) : [state.position, t.place].filter(Boolean);
   downloadFile(gpxFileName(t.place.name), routeToGpx({ name: t.place.name, points: pts }));
-  toast("Import this GPX in Garmin Connect → Courses, then Send to Device.", 4500);
+  toast("In Garmin Connect: Courses, Import, then Send to Device", 4500);
 });
 
 function endTrip() {

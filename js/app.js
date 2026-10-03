@@ -5,6 +5,8 @@ import { defaultProvider } from "./maplinks.js";
 import { CATEGORIES } from "./places.js";
 import { tripCalories } from "./calories.js";
 import { segmentSpeeds, speedRange, colouredRuns } from "./charts.js";
+import { icon } from "./icons.js";
+import { emptyUsage } from "./usage.js";
 
 export const L = window.L;
 export const store = createStore();
@@ -19,10 +21,17 @@ const DEFAULTS = {
   choice: { mode: "walk", length: "medium", difficulty: "moderate", style: "place" },
   interests: [],
   profile: { weightKg: 70, age: null, sex: "" },
+  usage: emptyUsage(),
 };
 export const settings = store.getSettings(DEFAULTS);
 settings.choice = { ...DEFAULTS.choice, ...settings.choice };
 settings.profile = { ...DEFAULTS.profile, ...settings.profile };
+settings.usage = { ...emptyUsage(), ...settings.usage };
+
+/** Replace <i data-icon="name"> placeholders with SVG icons. */
+export function hydrateIcons(root = document) {
+  root.querySelectorAll("i[data-icon]").forEach((el) => (el.outerHTML = icon(el.dataset.icon)));
+}
 export const saveSettings = () => store.saveSettings(settings);
 
 export const state = {
@@ -56,7 +65,6 @@ export const map = L.map("map", { zoomControl: false }).setView(
 
 const STYLES = {
   map: {
-    icon: "🗺️",
     label: "Map",
     layers: () => [
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -66,7 +74,6 @@ const STYLES = {
     ],
   },
   satellite: {
-    icon: "🛰️",
     label: "Satellite",
     layers: () => [
       L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
@@ -79,7 +86,6 @@ const STYLES = {
     ],
   },
   topo: {
-    icon: "⛰️",
     label: "Terrain",
     layers: () => [
       L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
@@ -101,7 +107,6 @@ export function setMapStyle(style) {
   settings.mapStyle = style;
   saveSettings();
   const next = STYLE_ORDER[(STYLE_ORDER.indexOf(style) + 1) % STYLE_ORDER.length];
-  $("#layer-btn").textContent = STYLES[next].icon;
   $("#layer-btn").setAttribute("aria-label", `Switch to ${STYLES[next].label}`);
   return STYLES[style].label;
 }
@@ -120,7 +125,7 @@ export const layers = {
 export const pinIcon = (category, selected = false, mystery = false) =>
   L.divIcon({
     className: "",
-    html: `<div class="pin${selected ? " selected" : ""}"><span>${mystery ? "❓" : CATEGORIES[category]?.icon || "📍"}</span></div>`,
+    html: `<div class="pin${selected ? " selected" : ""}"><span>${icon(mystery ? "map-pin-question" : CATEGORIES[category]?.icon || "sparkles")}</span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 34],
   });

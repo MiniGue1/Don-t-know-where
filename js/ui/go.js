@@ -1,8 +1,10 @@
 // "Where are you going now?" → mode → length → difficulty / ride style → suggestions.
 
-import { $, L, esc, toast, state, settings, saveSettings, store, layers, map, pinIcon, fitTo, views, showView } from "../app.js";
+import { $, L, esc, toast, state, settings, saveSettings, store, layers, pinIcon, fitTo, views, showView } from "../app.js";
+import { icon } from "../icons.js";
+import { recordChoice, splitModes, usualChoice, favourite } from "../usage.js";
 import { MODES, MODE_IDS, LENGTHS, DIFFICULTIES, RIDE_STYLES, thirdStep } from "../modes.js";
-import { CATEGORIES, CATEGORY_IDS, fetchPlaces, mysterySpot } from "../places.js";
+import { CATEGORIES, fetchPlaces, mysterySpot } from "../places.js";
 import { rankPlaces, surprisePick, searchRadius, estimateMinutes, DETOUR_FACTOR } from "../recommend.js";
 import { personalSpeed } from "../stats.js";
 import { fetchRoute } from "../routing.js";
@@ -28,24 +30,41 @@ function step(name) {
 }
 
 const fmtMinutes = (m) => (m < 60 ? `${m} min` : `${(m / 60).toFixed(m % 60 ? 1 : 0)} h`);
+let showAllModes = false;
+
+const optionLabel = (mode, opt) => {
+  const kind = thirdStep(mode);
+  if (!kind || !opt) return null;
+  return (kind === "style" ? RIDE_STYLES : DIFFICULTIES)[opt]?.label;
+};
 
 function renderModes() {
-  $("#mode-picker").innerHTML = MODE_IDS.map(
-    (id) =>
-      `<button type="button" data-mode="${id}" class="${choice.mode === id ? "last" : ""}"><span>${MODES[id].icon}</span>${MODES[id].label}</button>`
-  ).join("");
+  const usage = settings.usage;
+  const usual = usualChoice(usage);
+  const btn = $("#usual-btn");
+  btn.hidden = !usual || !MODES[usual.mode];
+  if (!btn.hidden) {
+    const bits = [MODES[usual.mode].label, LENGTHS[usual.length]?.label, optionLabel(usual.mode, usual.option)].filter(Boolean);
+    btn.innerHTML = `${icon(MODES[usual.mode].icon)}<span><b>As usual</b><small>${esc(bits.join(" · "))}</small></span>${icon("chevron-right", "go")}`;
+  }
+  const { top, more } = splitModes(usage, MODE_IDS, 3);
+  const shown = showAllModes ? [...top, ...more] : top;
+  const fav = top[0] && usage.modes[top[0]] ? top[0] : null;
+  $("#mode-picker").innerHTML =
+    shown
+      .map((id) => `<button type="button" data-mode="${id}" class="${id === fav ? "fav" : ""}">${icon(MODES[id].icon)}${MODES[id].label}</button>`)
+      .join("") + (showAllModes ? "" : `<button type="button" class="more" data-more aria-label="More">${icon("plus")}More</button>`);
 }
 
 function renderLengths() {
   const speed = personalSpeed(store.getHistory(), choice.mode);
   const m = MODES[choice.mode];
+  const fav = favourite(settings.usage, choice.mode, "length") || "medium";
   $("#length-picker").innerHTML = Object.values(LENGTHS)
     .map((l) => {
       const min = m.lengths[l.id];
       const km = (speed * min * 0.6) / 60 / DETOUR_FACTOR;
-      const ic = { short: "🟢", medium: "🟡", long: "🔴" }[l.id];
-      return `<button type="button" data-length="${l.id}" class="${choice.length === l.id ? "last" : ""}">
-        <span class="ic">${ic}</span><span><b>${l.label}</b><small>about ${fmtMinutes(min)} · up to ${formatDistance(km * 1000)} away</small></span></button>`;
+      return `<button type="button" data-length="${l.id}" class="${fav === l.id ? "fav" : ""}"><b>${l.label}</b><small>${fmtMinutes(min)} · ${formatDistance(km * 1000)}</small></button>`;
     })
     .join("");
 }
@@ -53,20 +72,19 @@ function renderLengths() {
 function renderOptions() {
   const kind = thirdStep(choice.mode);
   const opts = kind === "style" ? RIDE_STYLES : DIFFICULTIES;
-  const cur = kind === "style" ? choice.style : choice.difficulty;
+  const fav = favourite(settings.usage, choice.mode, "option") || (kind === "style" ? "place" : "moderate");
   $("#option-title").textContent = kind === "style" ? "What kind of ride?" : "How hard?";
   $("#option-picker").innerHTML = Object.values(opts)
-    .map(
-      (o) =>
-        `<button type="button" data-option="${o.id}" class="${cur === o.id ? "last" : ""}"><span class="ic">${o.icon}</span><span><b>${o.label}</b><small>${o.hint}</small></span></button>`
-    )
+    .map((o) => `<button type="button" data-option="${o.id}" class="${fav === o.id ? "fav" : ""}"><b>${o.label}</b><small>${o.hint}</small></button>`)
     .join("");
-  $("#interest-picker").innerHTML = CATEGORY_IDS.map(
-    (c) => `<button type="button" data-cat="${c}" aria-pressed="${settings.interests.includes(c)}">${CATEGORIES[c].icon} ${CATEGORIES[c].label}</button>`
-  ).join("");
 }
 
 $("#mode-picker").addEventListener("click", (e) => {
+  if (e.target.closest("[data-more]")) {
+    showAllModes = true;
+    renderModes();
+    return;
+  }
   const b = e.target.closest("[data-mode]");
   if (!b) return;
   choice.mode = b.dataset.mode;
@@ -95,19 +113,22 @@ $("#option-picker").addEventListener("click", (e) => {
   suggest();
 });
 
-$("#interest-picker").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-cat]");
-  if (!b) return;
-  const c = b.dataset.cat;
-  settings.interests = settings.interests.includes(c) ? settings.interests.filter((x) => x !== c) : [...settings.interests, c];
+$("#usual-btn").addEventListener("click", () => {
+  const u = usualChoice(settings.usage);
+  if (!u) return;
+  choice.mode = u.mode;
+  choice.length = u.length;
+  if (thirdStep(u.mode) === "style") choice.style = u.option;
+  else if (thirdStep(u.mode)) choice.difficulty = u.option;
   saveSettings();
-  b.setAttribute("aria-pressed", settings.interests.includes(c));
+  suggest();
 });
 
 document.querySelectorAll("#view-go [data-back]").forEach((b) =>
   b.addEventListener("click", () => {
     let target = b.dataset.back;
     if (target === "option" && !thirdStep(choice.mode)) target = "length";
+    if (target === "mode") renderModes();
     if (target === "length") renderLengths();
     if (target === "option") renderOptions();
     step(target);
@@ -143,8 +164,10 @@ async function suggest() {
   const kind = thirdStep(mode);
   const difficulty = kind === "difficulty" ? choice.difficulty : "moderate";
   const style = kind === "style" ? choice.style : "place";
+  recordChoice(settings.usage, { mode, length: choice.length, option: kind === "style" ? style : kind ? difficulty : null });
+  saveSettings();
 
-  loading("Looking around…");
+  loading("Looking around");
   let places = [];
   let offline = false;
   try {
@@ -157,7 +180,7 @@ async function suggest() {
   let elevations = null;
   let startEle = null;
   if (!offline && difficulty !== "moderate" && places.length) {
-    loading("Checking the hills…");
+    loading("Checking the hills");
     const near = places
       .map((p) => ({ p, d: distance(from, p) }))
       .filter((x) => estimateMinutes(x.d, speed) <= minutes * 0.6)
@@ -177,13 +200,13 @@ async function suggest() {
   const target = minutes * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
   const mysteryEntry = () => {
     const p = mysterySpot(from, ((speed * target) / 60) * 1000 / DETOUR_FACTOR);
-    return { place: p, score: 0, distance: distance(from, p), estMinutes: Math.round(target), isNew: true, reasons: ["a random point — pure adventure"] };
+    return { place: p, score: 0, distance: distance(from, p), estMinutes: Math.round(target), isNew: true, reasons: ["Random point. See what's there."] };
   };
 
   if (style === "twisty" || style === "straight") {
-    loading(style === "twisty" ? "Hunting for bends…" : "Finding open roads…");
+    loading(style === "twisty" ? "Finding curvy roads" : "Finding open roads");
     results = await pickRide(from, ranked, style, minutes, speed);
-    if (!results.length) toast("Couldn't reach the routing service — showing places instead.");
+    if (!results.length) toast("Routing is offline, showing places instead");
   } else results = [];
 
   if (!results.length) {
@@ -192,11 +215,9 @@ async function suggest() {
     results.push(mysteryEntry());
   }
 
-  $("#results-meta").textContent = offline
-    ? "Offline — mystery spot"
-    : `${MODES[mode].icon} ${LENGTHS[choice.length].label.toLowerCase()} · ${speed.toFixed(1)} km/h`;
-  if (offline) toast("Couldn't reach the map service — here's a mystery spot instead.");
-  else if (!ranked.length && style === "place") toast("Nothing mapped nearby fits — try longer.");
+  if (offline) toast("Offline. Here's a random spot instead.");
+  else if (!ranked.length && style === "place") toast("Nothing nearby fits. Try longer.");
+  showMore = false;
   step("results");
   renderResults();
   select(0);
@@ -211,7 +232,7 @@ async function pickRide(from, ranked, style, minutes, speed) {
   for (let i = 0; i < 4; i++) {
     const p = destination(from, base + i * 90 + Math.random() * 40, oneWayM * (0.8 + Math.random() * 0.3));
     cands.push({
-      place: { id: `ride:${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, name: `${style === "twisty" ? "Twisty" : "Open-road"} ride ${["north", "east", "south", "west"][Math.round(((base + i * 90) % 360) / 90) % 4]}`, kind: "ride destination", category: "views", mystery: true, named: false, lat: p.lat, lng: p.lng },
+      place: { id: `ride:${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, name: `${style === "twisty" ? "Curvy" : "Open"} roads ${["north", "east", "south", "west"][Math.round(((base + i * 90) % 360) / 90) % 4]}`, kind: "ride destination", category: "views", mystery: true, named: false, lat: p.lat, lng: p.lng },
       distance: distance(from, p),
       isNew: true,
       reasons: [],
@@ -229,40 +250,50 @@ async function pickRide(from, ranked, style, minutes, speed) {
         score: s.score,
         estMinutes: Math.max(1, Math.round(route.duration / 60)),
         place: { ...c.place, via: viaPoints(route.points, 3) },
-        reasons: [`${twistLabel(s.curvature)} (${Math.round(s.curvature)}°/km)`, `avg ${Math.round(s.kmh)} km/h`, ...c.reasons.slice(0, 1)],
+        reasons: [`${twistLabel(s.curvature)}`, `avg ${Math.round(s.kmh)} km/h`],
       };
     })
   );
   return routed.filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
+let showMore = false;
+const reasonText = (r) => (r.reasons?.length ? r.reasons.map((x) => x.charAt(0).toUpperCase() + x.slice(1)).join(" · ") : "");
+
 function renderResults() {
   layers.view.clearLayers();
   const mode = choice.mode;
-  $("#result-list").innerHTML = results
+  const list = showMore ? results : results.slice(0, 1);
+  $("#more-btn").hidden = showMore || results.length < 2;
+  $("#result-list").innerHTML = list
     .map((r, i) => {
       const p = r.place;
-      const icon = p.mystery ? "❓" : CATEGORIES[p.category]?.icon || "📍";
-      return `${i === 1 ? '<span class="label" style="margin-top:6px">Other ideas</span>' : ""}
-      <div class="card${i === 0 ? " hero" : ""}" data-i="${i}">
+      const ic = p.mystery ? "map-pin-question" : CATEGORIES[p.category]?.icon || "sparkles";
+      return `<div class="card${i === 0 ? " hero" : ""}" data-i="${i}">
         <div class="card-top">
-          <span class="card-icon">${icon}</span>
+          <span class="card-icon">${icon(ic)}</span>
           <div class="grow">
-            <h3>${esc(p.name)}${r.isNew ? '<span class="badge">NEW</span>' : ""}</h3>
-            <div class="meta">${esc(p.kind)} · ${formatDistance(r.distance)} away · ~${r.estMinutes} min ${MODES[mode].icon}</div>
-            ${r.reasons?.length ? `<div class="why">${esc(r.reasons.join(" · "))}</div>` : ""}
+            <h3>${esc(p.name)}</h3>
+            <div class="meta">${formatDistance(r.distance)} · ${r.estMinutes} min</div>
+            ${reasonText(r) ? `<div class="why">${esc(reasonText(r))}</div>` : ""}
           </div>
         </div>
-        ${i === 0 ? `<div class="actions"><button type="button" class="btn primary grow" data-go="${i}">Let's go</button></div>` : ""}
+        ${i === 0 ? `<div class="actions"><button type="button" class="btn primary grow" data-go="${i}">Go</button></div>` : ""}
       </div>`;
     })
     .join("");
-  markers = results.map((r, i) =>
+  markers = list.map((r, i) =>
     L.marker([r.place.lat, r.place.lng], { icon: pinIcon(r.place.category, false, r.place.mystery) })
       .on("click", () => select(i, true))
       .addTo(layers.view)
   );
 }
+
+$("#more-btn").addEventListener("click", () => {
+  showMore = true;
+  renderResults();
+  select(0);
+});
 
 let routeLine = null;
 async function select(i, scroll) {
@@ -273,7 +304,7 @@ async function select(i, scroll) {
     c.classList.toggle("selected", on);
     // Move the "Let's go" button to the selected card.
     const act = c.querySelector(".actions");
-    if (on && !act) c.insertAdjacentHTML("beforeend", `<div class="actions"><button type="button" class="btn primary grow" data-go="${i}">Let's go</button></div>`);
+    if (on && !act) c.insertAdjacentHTML("beforeend", `<div class="actions"><button type="button" class="btn primary grow" data-go="${i}">Go</button></div>`);
     if (!on && act) act.remove();
   });
   markers.forEach((m, j) => {
@@ -321,6 +352,7 @@ $("#reroll-btn").addEventListener("click", () => {
   const pick = surprisePick(pool);
   const mystery = results.find((r) => r.place.mystery);
   results = [pick, ...pool.filter((r) => r !== pick).slice(0, 4), ...(mystery ? [mystery] : [])];
+  showMore = false;
   renderResults();
   select(0);
 });
@@ -328,6 +360,7 @@ $("#reroll-btn").addEventListener("click", () => {
 views.go = {
   show() {
     if (state.trip) return showView("trip");
+    showAllModes = false;
     renderModes();
     if (results.length) {
       renderResults();
@@ -336,8 +369,10 @@ views.go = {
   },
 };
 
+/** Only shown when something needs the user's attention (no GPS). */
 export function setLocationStatus(text) {
-  $("#location-status").textContent = text;
+  $("#location-status").textContent = text || "";
+  $("#location-status").hidden = !text;
 }
 
 export function resetGo() {

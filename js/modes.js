@@ -1,30 +1,30 @@
-// Travel modes and the defaults used before we know how fast the user is.
+// Travel modes (icon = Tabler icon name) and the defaults used before we know how fast the user is.
 
 export const MODES = {
-  run: {
-    id: "run",
-    label: "Run",
-    icon: "🏃",
-    defaultSpeedKmh: 9.5,
-    routingProfile: "foot",
-    arriveRadius: 40,
-    lengths: { short: 20, medium: 40, long: 75 },
-    pace: true, // show min/km instead of km/h
-  },
   walk: {
     id: "walk",
     label: "Walk",
-    icon: "🚶",
+    icon: "walk",
     defaultSpeedKmh: 4.8,
     routingProfile: "foot",
     arriveRadius: 40,
     lengths: { short: 20, medium: 45, long: 90 },
     pace: true,
   },
+  run: {
+    id: "run",
+    label: "Run",
+    icon: "run",
+    defaultSpeedKmh: 9.5,
+    routingProfile: "foot",
+    arriveRadius: 40,
+    lengths: { short: 20, medium: 40, long: 75 },
+    pace: true, // show min/km instead of km/h
+  },
   bike: {
     id: "bike",
     label: "Cycle",
-    icon: "🚲",
+    icon: "bike",
     defaultSpeedKmh: 15,
     routingProfile: "bike",
     arriveRadius: 60,
@@ -33,7 +33,7 @@ export const MODES = {
   moto: {
     id: "moto",
     label: "Motorbike",
-    icon: "🏍️",
+    icon: "motorbike",
     defaultSpeedKmh: 45,
     routingProfile: "car",
     arriveRadius: 120,
@@ -42,7 +42,7 @@ export const MODES = {
   car: {
     id: "car",
     label: "Car",
-    icon: "🚗",
+    icon: "car",
     defaultSpeedKmh: 40,
     routingProfile: "car",
     arriveRadius: 150,
@@ -59,15 +59,15 @@ export const LENGTHS = {
 };
 
 export const DIFFICULTIES = {
-  easy: { id: "easy", label: "Easy", icon: "🙂", hint: "flat, close to the short end" },
-  moderate: { id: "moderate", label: "Moderate", icon: "😤", hint: "a bit of everything" },
-  hard: { id: "hard", label: "Hard", icon: "🔥", hint: "climbs and the far end" },
+  easy: { id: "easy", label: "Easy", hint: "Flat and close" },
+  moderate: { id: "moderate", label: "Moderate", hint: "A bit of everything" },
+  hard: { id: "hard", label: "Hard", hint: "Hills, further out" },
 };
 
 export const RIDE_STYLES = {
-  twisty: { id: "twisty", label: "Twisties", icon: "〰️", hint: "the curviest roads around" },
-  straight: { id: "straight", label: "Straights", icon: "➖", hint: "fast, flowing roads" },
-  place: { id: "place", label: "Interesting place", icon: "📍", hint: "somewhere worth stopping" },
+  twisty: { id: "twisty", label: "Twisties", hint: "Curvy roads" },
+  straight: { id: "straight", label: "Straights", hint: "Fast, open roads" },
+  place: { id: "place", label: "A place", hint: "Somewhere worth a stop" },
 };
 
 /** Which question step 3 asks for a mode: difficulty, ride style, or nothing. */

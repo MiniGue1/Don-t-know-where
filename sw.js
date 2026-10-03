@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached; map tiles and place lookups always go to the network.
-const CACHE = "dkw-v2";
+const CACHE = "dkw-v3";
 const SHELL = [
   "./",
   "index.html",
@@ -16,6 +16,7 @@ const SHELL = [
   "js/geo.js",
   "js/gpx.js",
   "js/hrm.js",
+  "js/icons.js",
   "js/importers.js",
   "js/leaderboard.js",
   "js/main.js",
@@ -28,6 +29,7 @@ const SHELL = [
   "js/stats.js",
   "js/store.js",
   "js/tracker.js",
+  "js/usage.js",
   "js/ui/activity.js",
   "js/ui/go.js",
   "js/ui/me.js",

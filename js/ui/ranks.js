@@ -1,12 +1,17 @@
 // Leaderboard: you vs. friends whose cards you've added. No server, no accounts.
 
 import { $, esc, toast, store, views, showView, shareStuff, kcalFor } from "../app.js";
-import { newIdentity, myStats, encodeCard, decodeCard, extractCode, rankBoard, BOARDS, AVATARS } from "../leaderboard.js";
+import { newIdentity, myStats, encodeCard, decodeCard, extractCode, rankBoard, BOARDS, initials, colorFor } from "../leaderboard.js";
+import { icon } from "../icons.js";
 
 let board = "weekKm";
 
 export function identity() {
   let id = store.getIdentity();
+  if (id && !/^#[0-9a-f]{6}$/i.test(id.avatar)) {
+    id.avatar = colorFor(id.id); // older versions stored an emoji
+    store.saveIdentity(id);
+  }
   if (!id) {
     id = newIdentity();
     store.saveIdentity(id);
@@ -27,27 +32,26 @@ export function cardLink() {
 
 function render() {
   const id = identity();
-  $("#avatar-btn").textContent = id.avatar;
+  $("#my-avatar").textContent = initials(id.name);
+  $("#my-avatar").style.background = id.avatar;
   if (document.activeElement !== $("#nickname")) $("#nickname").value = id.name;
   $("#board-picker").innerHTML = Object.values(BOARDS)
     .map((b) => `<button type="button" role="radio" data-board="${b.id}" aria-checked="${b.id === board}">${b.label}</button>`)
     .join("");
-  $("#board-hint").textContent = `${BOARDS[board].unit} · ${BOARDS[board].hint}`;
   const friends = store.getFriends();
   const rows = rankBoard(board, me(), friends);
-  const medal = (r) => ["🥇", "🥈", "🥉"][r - 1] || r;
   $("#board").innerHTML =
     rows
       .map(
-        (r) => `<div class="board-row${r.isMe ? " me" : ""}">
-        <span class="rank">${medal(r.rank)}</span>
-        <span class="av">${esc(r.avatar)}</span>
-        <span class="nm">${esc(r.name)}${r.isMe ? " (you)" : ""}</span>
-        <span class="val">${esc(String(r.value))}</span>
-        ${r.isMe ? "<span></span>" : `<button type="button" class="x" data-remove="${esc(r.id)}" aria-label="Remove ${esc(r.name)}">✕</button>`}
+        (r) => `<div class="board-row${r.isMe ? " me" : ""}${r.rank === 1 ? " first" : ""}">
+        <span class="rank">${r.rank === 1 ? icon("trophy") : r.rank}</span>
+        <span class="avatar av" style="background:${esc(r.avatar)}">${esc(initials(r.name))}</span>
+        <span class="nm">${esc(r.name)}</span>
+        <span class="val">${esc(String(r.value))} <small class="hint">${esc(BOARDS[board].unit)}</small></span>
+        ${r.isMe ? "<span></span>" : `<button type="button" class="x" data-remove="${esc(r.id)}" aria-label="Remove ${esc(r.name)}">${icon("x")}</button>`}
       </div>`
       )
-      .join("") + (friends.length ? "" : `<div class="empty">Just you so far. Share your card with friends — when they send theirs back, they show up here.</div>`);
+      .join("") + (friends.length ? "" : `<div class="empty">Invite friends to compete.</div>`);
 }
 
 $("#board-picker").addEventListener("click", (e) => {
@@ -65,12 +69,6 @@ $("#board").addEventListener("click", (e) => {
   }
 });
 
-$("#avatar-btn").addEventListener("click", () => {
-  const id = identity();
-  id.avatar = AVATARS[(AVATARS.indexOf(id.avatar) + 1) % AVATARS.length];
-  store.saveIdentity(id);
-  render();
-});
 
 $("#nickname").addEventListener("change", (e) => {
   const id = identity();
@@ -83,11 +81,11 @@ $("#share-card-btn").addEventListener("click", async () => {
   const id = identity();
   const res = await shareStuff({
     title: "My Don't Know Where card",
-    text: `${id.avatar} ${id.name} challenges you! Open this to add me to your leaderboard:`,
+    text: `${id.name} on Don't Know Where. Open to add me:`,
     url: cardLink(),
   });
-  if (res === "copied") toast("Link copied — send it to a friend");
-  else if (res === "failed") toast("Couldn't share — copy the code from the address bar instead");
+  if (res === "copied") toast("Link copied");
+  else if (res === "failed") toast("Couldn't share");
 });
 
 $("#add-friend-btn").addEventListener("click", () => {
@@ -96,17 +94,17 @@ $("#add-friend-btn").addEventListener("click", () => {
 
 export function addFriendFromCode(text, ask = true) {
   const code = extractCode(text);
-  if (!code) return toast("That doesn't look like a friend's card link.");
+  if (!code) return toast("That's not a friend link");
   try {
     const card = decodeCard(code);
-    if (card.id === identity().id) return toast("That's your own card 🙂");
+    if (card.id === identity().id) return toast("That's your own link");
     const exists = store.getFriends().some((f) => f.id === card.id);
-    if (ask && !confirm(`${exists ? "Update" : "Add"} ${card.avatar} ${card.name} ${exists ? "on" : "to"} your leaderboard?`)) return;
+    if (ask && !confirm(`${exists ? "Update" : "Add"} ${card.name}?`)) return;
     store.upsertFriend(card);
-    toast(`${card.name} ${exists ? "updated" : "added"}!`);
+    toast(`${card.name} ${exists ? "updated" : "added"}`);
     showView("ranks");
   } catch {
-    toast("That card link is broken or incomplete.");
+    toast("That link is broken");
   }
 }
 

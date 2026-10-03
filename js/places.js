@@ -3,12 +3,12 @@
 import { destination } from "./geo.js";
 
 export const CATEGORIES = {
-  nature: { id: "nature", label: "Nature", icon: "🌳" },
-  views: { id: "views", label: "Views", icon: "🏔️" },
-  history: { id: "history", label: "History", icon: "🏰" },
-  culture: { id: "culture", label: "Art & culture", icon: "🎨" },
-  food: { id: "food", label: "Food & drink", icon: "☕" },
-  quirky: { id: "quirky", label: "Hidden gems", icon: "✨" },
+  nature: { id: "nature", label: "Nature", icon: "trees" },
+  views: { id: "views", label: "Views", icon: "mountain" },
+  history: { id: "history", label: "History", icon: "building-castle" },
+  culture: { id: "culture", label: "Art & culture", icon: "palette" },
+  food: { id: "food", label: "Food & drink", icon: "coffee" },
+  quirky: { id: "quirky", label: "Hidden gems", icon: "sparkles" },
 };
 
 export const CATEGORY_IDS = Object.keys(CATEGORIES);

@@ -1,6 +1,6 @@
 // Boot: GPS, tabs, deep links, restore a running trip.
 
-import { $, state, settings, saveSettings, map, drawMe, showView, toast } from "./app.js";
+import { $, state, settings, saveSettings, map, drawMe, showView, toast, hydrateIcons } from "./app.js";
 import { setLocationStatus } from "./ui/go.js";
 import { onTripFix, restoreTrip, renderTrip } from "./ui/trip.js";
 import "./ui/recap.js";
@@ -16,7 +16,7 @@ function setPosition(pos, fromGps) {
   state.gpsOk = state.gpsOk || fromGps;
   settings.lastPosition = { lat: +pos.lat.toFixed(4), lng: +pos.lng.toFixed(4) };
   drawMe();
-  setLocationStatus(fromGps ? `📍 Located (±${Math.round(pos.accuracy || 0)} m)` : "📍 Start point set — tap the map to move it.");
+  setLocationStatus(fromGps ? "" : "Start point set. Tap the map to move it.");
   if (first) {
     saveSettings();
     if (!state.trip) map.setView([pos.lat, pos.lng], 15);
@@ -25,7 +25,7 @@ function setPosition(pos, fromGps) {
 
 function startGps() {
   if (!("geolocation" in navigator)) {
-    setLocationStatus("No GPS here — tap the map to set your start point.");
+    setLocationStatus("No GPS. Tap the map to set where you are.");
     return;
   }
   navigator.geolocation.watchPosition(
@@ -39,8 +39,8 @@ function startGps() {
       if (!state.gpsOk)
         setLocationStatus(
           err.code === 1
-            ? "Location is blocked — allow it in settings, or tap the map to set a start point."
-            : "Can't get GPS yet — tap the map to set your start point."
+            ? "Location is off. Allow it, or tap the map to set where you are."
+            : "No GPS yet. Tap the map to set where you are."
         );
     },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
@@ -54,7 +54,7 @@ map.on("click", (e) => {
 
 $("#locate-btn").addEventListener("click", () => {
   if (state.position) map.setView([state.position.lat, state.position.lng], Math.max(map.getZoom(), 15));
-  else toast("Still looking for you…");
+  else toast("Still looking for you");
 });
 
 // ---------------------------------------------------------------- shell
@@ -77,6 +77,7 @@ function handleHash() {
 }
 window.addEventListener("hashchange", handleHash);
 
+hydrateIcons();
 if (!restoreTrip()) showView("go");
 renderTrip();
 handleHash();
