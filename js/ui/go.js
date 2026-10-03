@@ -11,14 +11,14 @@ import { personalSpeed } from "../stats.js";
 import { fetchRoute, fetchRouteVia } from "../routing.js";
 import { rideScore, twistLabel, viaPoints } from "../ride.js";
 import { fetchElevations } from "../elevation.js";
-import { loopStops, loopStraightLength } from "../loop.js";
+import { loopStops, loopStraightLength, loopVariants, spikeRatio } from "../loop.js";
+import { prepare, isRestricted, routeHitsRestricted } from "../restricted.js";
 import { visitedSquares } from "../explore.js";
 import { placeInfo } from "../wiki.js";
 import { searchPlaces } from "../geocode.js";
 import { distance, destination, formatDistance } from "../geo.js";
 import { startTrip } from "./trip.js";
 
-const placeCache = new Map();
 let results = [];
 let markers = [];
 let ranked = []; // full ranked list, so "Another" can reroll without refetching
@@ -31,6 +31,7 @@ const choice = settings.choice;
 const isLoop = () => Boolean(settings.loopByMode[choice.mode]);
 
 function step(name) {
+  if (name !== "loading") clearTimeout(slowTimer);
   document.querySelectorAll("#view-go .step").forEach((s) => (s.hidden = s.dataset.step !== name));
   $("#view-go").scrollTop = 0;
   if (name !== "results") {
@@ -65,6 +66,7 @@ function setStart(start) {
     map.setView([start.lat, start.lng], Math.max(map.getZoom(), 14));
   } else if (state.position) map.setView([state.position.lat, state.position.lng], Math.max(map.getZoom(), 14));
   drawStart();
+  prefetch();
   $("#from-menu").hidden = true;
   $("#from-query").value = "";
   renderFrom();
@@ -247,17 +249,110 @@ document.querySelectorAll("#view-go [data-back]").forEach((b) =>
 
 // ---------------------------------------------------------------- suggestions
 
-async function loadPlaces(from, radius) {
-  const key = `${from.lat.toFixed(3)},${from.lng.toFixed(3)},${Math.round(radius / 500)}`;
-  if (placeCache.has(key)) return placeCache.get(key);
-  const places = await fetchPlaces(from, radius);
-  placeCache.set(key, places);
-  return places;
-}
+// How far a destination may lie from the nearest road/path before it counts as unreachable.
+const SNAP_LIMIT = { walk: 150, run: 150, bike: 150, moto: 300, car: 300 };
+let ctx = null; // { from, mode, profile, minutes, polys, others } for the current suggestions
+let slowTimer = null;
 
 function loading(key) {
   $("#loading-text").textContent = t(key);
   step("loading");
+  clearTimeout(slowTimer);
+  slowTimer = setTimeout(() => {
+    if (!$("#view-go [data-step=loading]").hidden) $("#loading-text").textContent = `${t(key)}. ${t("load.slow")}`;
+  }, 6000);
+}
+
+/** Prefetch places for the usual choice as soon as the start is known, so Go feels instant. */
+export function prefetch() {
+  const from = startPoint();
+  if (!from) return;
+  const mode = splitModes(settings.usage, MODE_IDS, 1).top[0] || choice.mode;
+  const len = favourite(settings.usage, mode, "length") || "medium";
+  const loop = settings.loopByMode[mode];
+  const speed = personalSpeed(store.getHistory(), mode);
+  fetchPlaces(from, searchRadius(MODES[mode].lengths[len] * (loop ? 0.75 : 1), speed)).catch(() => {});
+}
+
+/**
+ * Check a candidate against real roads: drop it if it's far from any road/path or the
+ * way there crosses restricted land; move the pin onto the road if it's slightly off.
+ * Keeps the candidate unchanged when routing is unavailable.
+ */
+async function validate(r) {
+  const route = r.rideRoute || (await fetchRoute(ctx.profile, ctx.from, r.place));
+  if (!route) return r;
+  const wp = route.waypoints?.at(-1);
+  if (wp && wp.snap > SNAP_LIMIT[ctx.mode]) return null;
+  if (routeHitsRestricted(route.points, ctx.polys)) return null;
+  const place = wp && wp.snap > 30 ? { ...r.place, lat: wp.lat, lng: wp.lng } : r.place;
+  return { ...r, place, oneWay: route, route: r.loop ? null : route };
+}
+
+const joinRoutes = (a, b) => ({ points: [...a.points, ...b.points], distance: a.distance + b.distance, duration: a.duration + b.duration, waypoints: [...(a.waypoints || []), ...(b.waypoints || []).slice(1)] });
+
+/**
+ * Pick the best loop: several variants (a second real place, or return points left/right),
+ * scored by how much they retrace themselves and how well they fit the time. If every
+ * variant is spiky, fall back to an honest out-and-back on the same path.
+ */
+async function planLoop(r) {
+  if (r.loopPlanned) return r;
+  r.loopPlanned = true;
+  const variants = loopVariants(ctx.from, r.place, ctx.others);
+  const routes = await Promise.all(
+    variants.map(async (v) => {
+      if (r.rideRoute) {
+        const back = await fetchRouteVia(ctx.profile, v.stops.slice(1));
+        return back && joinRoutes(r.rideRoute, back);
+      }
+      return fetchRouteVia(ctx.profile, v.stops);
+    })
+  );
+  let best = null;
+  routes.forEach((route, i) => {
+    if (!route || routeHitsRestricted(route.points, ctx.polys)) return;
+    const spike = spikeRatio(route.points);
+    const fit = Math.abs(route.duration / 60 - ctx.minutes) / ctx.minutes;
+    const score = spike * 2 + fit;
+    if (!best || score < best.score) best = { score, spike, route, v: variants[i] };
+  });
+  if (best && best.spike <= 0.35) {
+    r.route = best.route;
+    const wp = best.route.waypoints?.[2];
+    r.loopVia = wp ? { lat: wp.lat, lng: wp.lng } : best.v.via;
+  } else if (r.oneWay) {
+    const back = r.oneWay.points.slice().reverse();
+    r.route = { points: [...r.oneWay.points, ...back], distance: r.oneWay.distance * 2, duration: r.oneWay.duration * 2 };
+    r.loopVia = null;
+    r.outBack = true;
+  } else if (best) {
+    r.route = best.route;
+    r.loopVia = best.v.via;
+  }
+  return r;
+}
+
+/** Validate candidates in order until `want` good ones are found (checks a few at a time). */
+async function firstValid(cands, want) {
+  const out = [];
+  for (let i = 0; i < cands.length && out.length < want; i += 3) {
+    const batch = await Promise.all(cands.slice(i, i + 3).map(validate));
+    out.push(...batch.filter(Boolean));
+  }
+  return out.slice(0, want);
+}
+
+/** Mystery spot, only when nothing real fits: must be reachable and outside restricted land. */
+async function mysteryEntry(dist) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const p = { ...mysterySpot(ctx.from, dist), name: t("mystery.name") };
+    if (isRestricted(p, ctx.polys)) continue;
+    const entry = { place: p, score: 0, distance: distance(ctx.from, p), estMinutes: Math.round((dist * DETOUR_FACTOR) / 1000 / (personalSpeed(store.getHistory(), ctx.mode) / 60)), isNew: true, loop: isLoop(), reasons: [{ k: "mystery.reason" }] };
+    const ok = await validate(entry);
+    if (ok) return ok;
+  }
+  return null;
 }
 
 async function suggest() {
@@ -281,12 +376,16 @@ async function suggest() {
 
   loading("load.looking");
   let places = [];
+  let polys = [];
   let offline = false;
   try {
-    places = await loadPlaces(from, searchRadius(minutes * (loop ? 0.75 : 1), speed));
+    const data = await fetchPlaces(from, searchRadius(minutes * (loop ? 0.75 : 1), speed));
+    polys = prepare(data.restricted);
+    places = data.places.filter((p) => !isRestricted(p, polys));
   } catch {
     offline = true;
   }
+  ctx = { from, mode, profile: MODES[mode].routingProfile, minutes, polys, others: [] };
 
   // Difficulty needs to know which places are uphill.
   let elevations = null;
@@ -309,28 +408,36 @@ async function suggest() {
   const squares = visitedSquares(history);
   ({ ranked } = rankPlaces({ places, from, mode, minutes, interests: settings.interests, history, difficulty, elevations, startEle, loop, squares }));
   for (const r of ranked) r.loop = loop;
+  ctx.others = ranked.slice(0, 30).map((r) => r.place);
 
-  // Always somewhere to go: a mystery spot at a good distance.
-  const target = minutes * (loop ? 0.75 : 1) * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
-  const mysteryEntry = () => {
-    const p = { ...mysterySpot(from, (((speed * target) / 60) * 1000) / DETOUR_FACTOR), name: t("mystery.name") };
-    return { place: p, score: 0, distance: distance(from, p), estMinutes: Math.round(target), isNew: true, loop, reasons: [{ k: "mystery.reason" }] };
-  };
-
+  loading("load.checking");
   results = [];
   if (style === "twisty" || style === "straight") {
     loading(style === "twisty" ? "load.curvy" : "load.open");
-    results = await pickRide(from, ranked, style, minutes * (loop ? 0.75 : 1), speed, loop);
+    results = await firstValid(await pickRide(from, ranked, style, minutes * (loop ? 0.75 : 1), speed, loop), 5);
     if (!results.length) toast(t("toast.routingOff"));
   }
   if (!results.length) {
     const pick = surprisePick(ranked);
-    results = pick ? [pick, ...ranked.filter((r) => r !== pick).slice(0, 4)] : [];
-    results.push(mysteryEntry());
+    const order = pick ? [pick, ...ranked.filter((r) => r !== pick)] : [];
+    results = await firstValid(order.slice(0, 9), 5);
   }
+  if (!results.length) {
+    // Nothing real fits: a random but reachable spot.
+    const target = minutes * (loop ? 0.75 : 1) * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
+    const m = await mysteryEntry((((speed * target) / 60) * 1000) / DETOUR_FACTOR);
+    if (m) results = [m];
+  }
+  if (results[0]?.loop) await planLoop(results[0]);
 
+  clearTimeout(slowTimer);
   if (offline) toast(t("toast.offline"));
   else if (!ranked.length && style === "place") toast(t("toast.nothing"));
+  if (!results.length) {
+    step("option");
+    if (!thirdStep(mode)) step("length");
+    return;
+  }
   showMore = false;
   selected = 0;
   step("results");
@@ -347,6 +454,7 @@ async function pickRide(from, ranked, style, minutes, speed, loop) {
   for (let i = 0; i < 4; i++) {
     const bearing = base + i * 90 + Math.random() * 40;
     const p = destination(from, bearing, oneWayM * (0.8 + Math.random() * 0.3));
+    if (isRestricted(p, ctx.polys)) continue;
     const dir = t(`dir.${Math.round((((bearing % 360) + 360) % 360) / 90) % 4}`);
     cands.push({
       place: { id: `ride:${p.lat.toFixed(4)},${p.lng.toFixed(4)}`, name: t(style === "twisty" ? "ride.curvy" : "ride.open", { dir }), kind: "ride", category: "views", mystery: true, named: false, lat: p.lat, lng: p.lng },
@@ -371,14 +479,14 @@ async function pickRide(from, ranked, style, minutes, speed, loop) {
       };
     })
   );
-  return routed.filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 6);
+  return routed.filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
 const reasonText = (r) => (r.reasons || []).map((x) => (typeof x === "string" ? x : t(x.k, x.p))).join(" · ");
 
 /** Distance and time shown on a card: one way, or the whole loop. */
 function cardMeta(r) {
-  if (r.route) return `${formatDistance(r.route.distance)} · ${fmtMinutes(r.route.duration / 60)}${r.loop ? ` · ${t("go.loopApprox")}` : ""}`;
+  if (r.route) return `${formatDistance(r.route.distance)} · ${fmtMinutes(r.route.duration / 60)}${r.loop ? ` · ${t(r.outBack ? "go.outBack" : "go.loopApprox")}` : ""}`;
   if (r.loop) {
     const stops = loopStops(startPoint(), r.place);
     return `${formatDistance(loopStraightLength(stops) * DETOUR_FACTOR)} · ${fmtMinutes(r.estMinutes * 2.2)} · ${t("go.loopApprox")}`;
@@ -457,31 +565,28 @@ async function select(i, scroll) {
   });
   markers.forEach((m, j) => {
     m.setIcon(pinIcon(results[j].place.category, j === i, results[j].place.mystery));
+    m.setLatLng([results[j].place.lat, results[j].place.lng]);
     m.setZIndexOffset(j === i ? 500 : 0);
   });
   if (scroll) document.querySelector(`#result-list .card[data-i="${i}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 
-  if (r.loop && !r.side) r.side = Math.random() < 0.5 ? 1 : -1;
-  const stops = r.loop ? loopStops(from, r.place, r.side) : [from, r.place];
-  fitTo(stops);
-  if (routeLine) layers.view.removeLayer(routeLine);
-  routeLine = L.polyline(stops.map((p) => [p.lat, p.lng]), { color: "#0f766e", weight: 3, dashArray: "6 8" }).addTo(layers.view);
-
-  if (!r.route) {
-    const profile = MODES[choice.mode].routingProfile;
-    if (r.rideRoute && !r.loop) r.route = r.rideRoute;
-    else if (r.rideRoute && r.loop) {
-      const back = await fetchRouteVia(profile, stops.slice(1));
-      if (back) r.route = { points: [...r.rideRoute.points, ...back.points], distance: r.rideRoute.distance + back.distance, duration: r.rideRoute.duration + back.duration };
-    } else r.route = await fetchRouteVia(profile, stops);
+  const draw = () => {
+    if (results[i] !== r || state.view !== "go" || selected !== i) return;
+    if (routeLine) layers.view.removeLayer(routeLine);
     if (r.route) {
-      const meta = document.querySelector(`#result-list .card[data-i="${i}"] .meta`);
-      if (meta) meta.textContent = cardMeta(r);
+      routeLine = L.polyline(r.route.points.map((p) => [p.lat, p.lng]), { color: "#0f766e", weight: 5, opacity: 0.9 }).addTo(layers.view);
+      fitTo(r.route.points);
+    } else {
+      routeLine = L.polyline([[from.lat, from.lng], [r.place.lat, r.place.lng]], { color: "#0f766e", weight: 3, dashArray: "6 8" }).addTo(layers.view);
+      fitTo([from, r.place]);
     }
-  }
-  if (r.route && results[i] === r && state.view === "go" && selected === i) {
-    layers.view.removeLayer(routeLine);
-    routeLine = L.polyline(r.route.points.map((p) => [p.lat, p.lng]), { color: "#0f766e", weight: 5, opacity: 0.9 }).addTo(layers.view);
+    const meta = document.querySelector(`#result-list .card[data-i="${i}"] .meta`);
+    if (meta) meta.textContent = cardMeta(r);
+  };
+  draw();
+  if (r.loop && !r.loopPlanned && ctx) {
+    await planLoop(r);
+    draw();
   }
 }
 
@@ -490,10 +595,10 @@ $("#result-list").addEventListener("click", (e) => {
   const go = e.target.closest("[data-go]");
   if (go) {
     const r = results[+go.dataset.go];
+    if (r.loop && !r.loopPlanned) return; // still planning the loop; the button works a moment later
     const from = startPoint();
     const place = { ...r.place, name: r.place.mystery && !r.place.via ? t("mystery.name") : r.place.name };
-    const loopVia = r.loop ? loopStops(from, r.place, r.side || 1)[2] : null;
-    startTrip(place, choice.mode, r.route?.points, { home: r.loop ? { lat: from.lat, lng: from.lng } : null, loopVia, origin: from });
+    startTrip(place, choice.mode, r.route?.points, { home: r.loop ? { lat: from.lat, lng: from.lng } : null, loopVia: r.loopVia || null, origin: from });
     if (state.trip?.place.id === r.place.id) {
       // Next time Go opens (after this trip), start from the first question.
       results = [];
@@ -506,17 +611,21 @@ $("#result-list").addEventListener("click", (e) => {
   if (card) select(+card.dataset.i);
 });
 
-$("#reroll-btn").addEventListener("click", () => {
+$("#reroll-btn").addEventListener("click", async () => {
   const ride = thirdStep(choice.mode) === "style" && ["twisty", "straight"].includes(choice.style);
-  if (!ranked.length || ride) return suggest();
+  if (!ranked.length || ride || !ctx) return suggest();
   const shown = new Set(results.map((r) => r.place.id));
   const fresh = ranked.filter((r) => !shown.has(r.place.id));
   const pool = fresh.length ? fresh : ranked;
   const pick = surprisePick(pool);
-  const mystery = results.find((r) => r.place.mystery);
-  results = [pick, ...pool.filter((r) => r !== pick).slice(0, 4), ...(mystery ? [mystery] : [])];
+  loading("load.checking");
+  const next = await firstValid([pick, ...pool.filter((r) => r !== pick)].slice(0, 9), 5);
+  clearTimeout(slowTimer);
+  if (next.length) results = next;
+  if (results[0]?.loop) await planLoop(results[0]);
   showMore = false;
   selected = 0;
+  step("results");
   renderResults();
   select(0);
 });

@@ -2,7 +2,7 @@
 
 import { $, state, settings, saveSettings, map, drawMe, showView, toast, hydrateIcons } from "./app.js";
 import { applyI18n, t } from "./i18n.js";
-import { updateLocationStatus } from "./ui/go.js";
+import { updateLocationStatus, prefetch } from "./ui/go.js";
 import { onTripFix, restoreTrip, renderTrip } from "./ui/trip.js";
 import "./ui/recap.js";
 import "./ui/activity.js";
@@ -20,6 +20,7 @@ function setPosition(pos) {
   if (first) {
     updateLocationStatus();
     saveSettings();
+    if (!state.start) prefetch();
     if (!state.trip && !state.start) map.setView([pos.lat, pos.lng], 15);
   }
 }

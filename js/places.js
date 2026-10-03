@@ -18,10 +18,13 @@ const OVERPASS_ENDPOINTS = [
   "https://overpass.kumi.systems/api/interpreter",
 ];
 
-/** Overpass QL query for interesting things within `radius` metres of `center`. */
+/**
+ * Overpass QL query for interesting things within `radius` metres of `center`,
+ * plus restricted land (military / no access) with its outline so it can be avoided.
+ */
 export function buildQuery(center, radius) {
   const a = `(around:${Math.round(radius)},${center.lat.toFixed(5)},${center.lng.toFixed(5)})`;
-  return `[out:json][timeout:25];
+  return `[out:json][timeout:10];
 (
   nwr["tourism"~"^(attraction|viewpoint|museum|gallery|artwork|picnic_site|zoo|theme_park)$"]${a};
   nwr["historic"]["name"]${a};
@@ -31,7 +34,64 @@ export function buildQuery(center, radius) {
   nwr["man_made"~"^(tower|lighthouse|windmill|watermill)$"]${a};
   nwr["waterway"="waterfall"]${a};
 );
-out center tags 300;`;
+out center tags 200;
+(
+  way["landuse"="military"]${a};
+  relation["landuse"="military"]${a};
+  way["military"~"^(training_area|danger_area|range|barracks|airfield)$"]${a};
+  relation["military"~"^(training_area|danger_area|range|barracks|airfield)$"]${a};
+  way["landuse"]["access"~"^(no|private)$"]${a};
+);
+out geom;`;
+}
+
+const RESTRICTED_MILITARY = /^(training_area|danger_area|range|barracks|airfield)$/;
+export function isRestrictedTags(t = {}) {
+  return t.landuse === "military" || RESTRICTED_MILITARY.test(t.military || "") || (Boolean(t.landuse) && /^(no|private)$/.test(t.access || ""));
+}
+
+const MAX_RING = 400;
+const thin = (ring) => (ring.length <= MAX_RING ? ring : ring.filter((_, i) => i % Math.ceil(ring.length / MAX_RING) === 0));
+const pt = (g) => ({ lat: +g.lat.toFixed(5), lng: +g.lon.toFixed(5) });
+const same = (a, b) => a.lat === b.lat && a.lng === b.lng;
+
+/** Join relation member ways (in any order/direction) into closed rings. */
+export function joinRings(segments) {
+  const rings = [];
+  const open = segments.map((s) => s.slice()).filter((s) => s.length >= 2);
+  while (open.length) {
+    let ring = open.shift();
+    let grew = true;
+    while (!same(ring[0], ring[ring.length - 1]) && grew) {
+      grew = false;
+      for (let i = 0; i < open.length; i++) {
+        const s = open[i];
+        const end = ring[ring.length - 1];
+        if (same(s[0], end)) ring = ring.concat(s.slice(1));
+        else if (same(s[s.length - 1], end)) ring = ring.concat(s.slice(0, -1).reverse());
+        else continue;
+        open.splice(i, 1);
+        grew = true;
+        break;
+      }
+    }
+    if (ring.length >= 4) rings.push(ring);
+  }
+  return rings;
+}
+
+/** Restricted polygons (outer rings) from an Overpass response. */
+export function parseRestricted(json) {
+  const out = [];
+  for (const el of json?.elements || []) {
+    if (!isRestrictedTags(el.tags)) continue;
+    if (el.type === "way" && el.geometry?.length >= 4) out.push(thin(el.geometry.map(pt)));
+    else if (el.type === "relation" && el.members) {
+      const outer = el.members.filter((m) => m.type === "way" && m.role !== "inner" && m.geometry?.length).map((m) => m.geometry.map(pt));
+      for (const ring of joinRings(outer)) out.push(thin(ring));
+    }
+  }
+  return out;
 }
 
 /** Decide which category an OSM tag set belongs to (or null if not interesting). */
@@ -65,6 +125,7 @@ export function parseOverpass(json) {
     const lng = el.lon ?? el.center?.lon;
     if (lat == null || lng == null) continue;
     const tags = el.tags || {};
+    if (/^(no|private)$/.test(tags.access || "")) continue;
     const category = categorize(tags);
     if (!category) continue;
     const name = tags.name || tags["name:en"];
@@ -92,20 +153,84 @@ export function parseOverpass(json) {
 }
 
 /** Fetch places around `center`. Throws if every endpoint fails. */
-export async function fetchPlaces(center, radius, { fetchImpl = fetch, signal } = {}) {
-  const body = new URLSearchParams({ data: buildQuery(center, radius) });
-  let lastErr;
-  for (const url of OVERPASS_ENDPOINTS) {
-    try {
-      const res = await fetchImpl(url, { method: "POST", body, signal });
-      if (!res.ok) throw new Error(`Overpass ${res.status}`);
-      return parseOverpass(await res.json());
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      lastErr = err;
-    }
+// ---------------------------------------------------------------- fetching + cache
+
+const CACHE_KEY = "dkw.places.v2";
+const CACHE_TTL = 24 * 3600 * 1000;
+const CACHE_MAX = 20;
+
+/** Cache key: start rounded to ~1 km, radius in 1 km buckets. */
+export const placesCacheKey = (center, radius) => `${center.lat.toFixed(2)},${center.lng.toFixed(2)},${Math.ceil(radius / 1000)}`;
+
+function readCache(storage) {
+  try {
+    return JSON.parse(storage?.getItem(CACHE_KEY)) || {};
+  } catch {
+    return {};
   }
-  throw lastErr || new Error("No Overpass endpoint reachable");
+}
+
+export function cachedPlaces(center, radius, { storage = globalThis.localStorage, now = Date.now() } = {}) {
+  const hit = readCache(storage)[placesCacheKey(center, radius)];
+  return hit && now - hit.t < CACHE_TTL ? { places: hit.places, restricted: hit.restricted || [] } : null;
+}
+
+function writeCache(center, radius, data, storage, now) {
+  try {
+    const c = readCache(storage);
+    c[placesCacheKey(center, radius)] = { t: now, ...data };
+    const keys = Object.keys(c).sort((a, b) => c[a].t - c[b].t);
+    while (keys.length > CACHE_MAX) delete c[keys.shift()];
+    storage?.setItem(CACHE_KEY, JSON.stringify(c));
+  } catch {
+    // Quota exceeded: caching is optional.
+  }
+}
+
+const inflight = new Map();
+
+/**
+ * Places + restricted areas around `center`: { places, restricted }.
+ * Uses the 24 h cache; otherwise asks every Overpass server at once and takes the
+ * first good answer (public servers are often slow). Throws if none answers in time.
+ */
+export function fetchPlaces(center, radius, { fetchImpl = globalThis.fetch, storage = globalThis.localStorage, timeoutMs = 8000, now = Date.now() } = {}) {
+  const cached = cachedPlaces(center, radius, { storage, now });
+  if (cached) return Promise.resolve(cached);
+  const key = placesCacheKey(center, radius);
+  if (inflight.has(key)) return inflight.get(key);
+
+  const body = new URLSearchParams({ data: buildQuery(center, radius) }).toString();
+  const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
+  const timer = setTimeout(() => controllers.forEach((c) => c.abort()), timeoutMs);
+  const attempts = OVERPASS_ENDPOINTS.map(async (url, i) => {
+    const res = await fetchImpl(url, {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      signal: controllers[i].signal,
+    });
+    if (!res.ok) throw new Error(`Overpass ${res.status}`);
+    const json = await res.json();
+    if (json.remark && !json.elements?.length) throw new Error(json.remark); // server-side timeout
+    return json;
+  });
+  const p = Promise.any(attempts)
+    .then((json) => {
+      controllers.forEach((c) => c.abort()); // stop the slower server
+      const data = { places: parseOverpass(json), restricted: parseRestricted(json) };
+      writeCache(center, radius, data, storage, now);
+      return data;
+    })
+    .catch(() => {
+      throw new Error("No Overpass server answered in time");
+    })
+    .finally(() => {
+      clearTimeout(timer);
+      inflight.delete(key);
+    });
+  inflight.set(key, p);
+  return p;
 }
 
 /**

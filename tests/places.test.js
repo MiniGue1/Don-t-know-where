@@ -34,7 +34,7 @@ test("fetchPlaces falls back to the second endpoint", async () => {
     if (calls.length === 1) throw new Error("down");
     return { ok: true, json: async () => ({ elements: [{ type: "node", id: 9, lat: 1, lon: 2, tags: { historic: "monument", name: "M" } }] }) };
   };
-  const places = await fetchPlaces({ lat: 1, lng: 2 }, 1000, { fetchImpl });
+  const { places } = await fetchPlaces({ lat: 1, lng: 2 }, 1000, { fetchImpl, storage: null });
   assert.equal(calls.length, 2);
   assert.equal(places[0].name, "M");
 });

@@ -3,8 +3,11 @@
 const URL_BASE = "https://api.open-meteo.com/v1/elevation";
 
 /** Elevations (m) for up to 100 points per request. Returns null on failure. */
-export async function fetchElevations(points, { fetchImpl = fetch, signal } = {}) {
+export async function fetchElevations(points, { fetchImpl = fetch, timeoutMs = 5000 } = {}) {
   if (!points.length) return [];
+  const ctrl = new AbortController();
+  const signal = ctrl.signal;
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const out = [];
     for (let i = 0; i < points.length; i += 100) {
@@ -21,6 +24,8 @@ export async function fetchElevations(points, { fetchImpl = fetch, signal } = {}
     return out;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

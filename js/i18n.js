@@ -34,11 +34,14 @@ const en = {
   "go.back": "Back",
   "go.readMore": "Wikipedia",
   "go.loopApprox": "loop",
+  "go.outBack": "there and back",
 
   "load.looking": "Looking around",
   "load.hills": "Checking the hills",
   "load.curvy": "Finding curvy roads",
   "load.open": "Finding open roads",
+  "load.checking": "Checking the routes",
+  "load.slow": "Map servers are slow, still trying",
 
   "toast.noStart": "Pick where you're starting from first",
   "toast.routingOff": "Routing is offline, showing places instead",
@@ -265,11 +268,14 @@ const cs = {
   "go.back": "Zpět",
   "go.readMore": "Wikipedie",
   "go.loopApprox": "okruh",
+  "go.outBack": "tam a zpět",
 
   "load.looking": "Rozhlížím se",
   "load.hills": "Zjišťuji kopce",
   "load.curvy": "Hledám zatáčky",
   "load.open": "Hledám volné silnice",
+  "load.checking": "Ověřuji trasy",
+  "load.slow": "Mapové servery jsou pomalé, ještě zkouším",
 
   "toast.noStart": "Nejdřív vyber, odkud vyrážíš",
   "toast.routingOff": "Plánování tras nejede, ukazuji místa",

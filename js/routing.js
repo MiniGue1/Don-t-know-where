@@ -19,10 +19,16 @@ export function fetchRoute(profile, from, to, opts) {
   return fetchRouteVia(profile, [from, to], opts);
 }
 
-/** Route through several stops (e.g. a loop start → place → via → start). */
-export async function fetchRouteVia(profile, points, { fetchImpl = fetch, signal } = {}) {
+/**
+ * Route through several stops (e.g. a loop start → place → via → start).
+ * Returns { points, distance (m), duration (s), waypoints: [{ lat, lng, snap (m) }] } or null.
+ * `snap` is how far each stop is from the nearest road/path, used to drop unreachable places.
+ */
+export async function fetchRouteVia(profile, points, { fetchImpl = fetch, timeoutMs = 8000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(routeUrl(profile, points), { signal });
+    const res = await fetchImpl(routeUrl(profile, points), { signal: ctrl.signal });
     if (!res.ok) return null;
     const json = await res.json();
     const r = json.routes?.[0];
@@ -31,8 +37,11 @@ export async function fetchRouteVia(profile, points, { fetchImpl = fetch, signal
       points: r.geometry.coordinates.map(([lng, lat]) => ({ lat, lng })),
       distance: r.distance,
       duration: r.duration,
+      waypoints: (json.waypoints || []).map((w) => ({ lat: w.location[1], lng: w.location[0], snap: w.distance ?? 0 })),
     };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
