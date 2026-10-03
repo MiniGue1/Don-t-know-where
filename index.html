@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Don't know where to go? Get a new place to walk, ride or drive to, and keep a history of every outing." />
+  <title>Don't Know Where</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div id="map" aria-label="Map"></div>
+
+  <button id="locate-btn" class="fab" type="button" aria-label="Center on my location">◎</button>
+
+  <!-- EXPLORE -->
+  <section id="view-explore" class="sheet view" data-view="explore">
+    <div class="grabber"></div>
+    <div id="explore-form">
+      <h1 class="title">Where to?</h1>
+      <p class="hint" id="location-status">Finding your location…</p>
+
+      <div class="field">
+        <span class="label">How are you going?</span>
+        <div class="segmented" id="mode-picker" role="radiogroup"></div>
+      </div>
+
+      <div class="field">
+        <span class="label">How much time do you have?</span>
+        <div class="chips" id="time-picker" role="radiogroup"></div>
+      </div>
+
+      <div class="field">
+        <span class="label">What do you want to see? <small>(optional)</small></span>
+        <div class="chips" id="interest-picker"></div>
+      </div>
+
+      <div class="row">
+        <button id="suggest-btn" class="btn primary grow" type="button">🎲 Surprise me</button>
+        <button id="list-btn" class="btn" type="button">Show options</button>
+      </div>
+    </div>
+
+    <div id="results" hidden>
+      <div class="row between">
+        <button id="back-btn" class="btn ghost" type="button">← Change</button>
+        <span class="hint" id="results-meta"></span>
+      </div>
+      <div id="result-list" class="cards"></div>
+    </div>
+  </section>
+
+  <!-- ACTIVE TRIP -->
+  <section id="view-trip" class="sheet view" data-view="trip" hidden>
+    <div class="grabber"></div>
+    <div class="trip-head">
+      <div>
+        <span class="label" id="trip-status">On the way</span>
+        <h2 class="title" id="trip-place"></h2>
+        <span class="hint" id="trip-kind"></span>
+      </div>
+      <span class="big-icon" id="trip-icon"></span>
+    </div>
+    <div class="stats-grid">
+      <div class="stat"><span class="stat-v" id="trip-remaining">–</span><span class="stat-l">to go</span></div>
+      <div class="stat"><span class="stat-v" id="trip-elapsed">0 s</span><span class="stat-l">elapsed</span></div>
+      <div class="stat"><span class="stat-v" id="trip-speed">–</span><span class="stat-l">avg km/h</span></div>
+      <div class="stat"><span class="stat-v" id="trip-dwell">–</span><span class="stat-l">time there</span></div>
+    </div>
+    <div class="field">
+      <span class="label">Navigate with</span>
+      <div class="row wrap" id="nav-links"></div>
+    </div>
+    <p class="hint small">Keep this app open to record your route. Phones pause GPS for web apps in the background — tap “I'm here” if arrival wasn't detected.</p>
+    <div class="row">
+      <button id="here-btn" class="btn" type="button">📍 I'm here</button>
+      <button id="finish-btn" class="btn primary grow" type="button">Finish & save</button>
+    </div>
+    <button id="cancel-trip-btn" class="btn ghost danger full" type="button">Cancel trip</button>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="view-history" class="sheet view tall" data-view="history" hidden>
+    <div class="grabber"></div>
+    <h1 class="title">Your outings</h1>
+    <div id="history-summary" class="stats-grid"></div>
+    <div id="history-list" class="cards"></div>
+  </section>
+
+  <!-- PROFILE -->
+  <section id="view-me" class="sheet view tall" data-view="me" hidden>
+    <div class="grabber"></div>
+    <h1 class="title">Records</h1>
+    <div id="records"></div>
+    <h2 class="subtitle">What you like</h2>
+    <p class="hint small">Learned from how long you stay at each kind of place.</p>
+    <div id="interest-bars"></div>
+    <h2 class="subtitle">Settings</h2>
+    <div class="field">
+      <span class="label">Default maps app</span>
+      <div class="chips" id="provider-picker"></div>
+    </div>
+    <div class="row wrap">
+      <button id="export-btn" class="btn" type="button">Export history</button>
+      <button id="clear-btn" class="btn ghost danger" type="button">Delete all data</button>
+    </div>
+    <p class="hint small">All data stays on this phone. Map data © OpenStreetMap contributors.</p>
+  </section>
+
+  <nav class="tabbar" aria-label="Sections">
+    <button type="button" data-tab="explore" class="active"><span>🧭</span>Explore</button>
+    <button type="button" data-tab="trip" id="tab-trip"><span>⏱️</span>Trip</button>
+    <button type="button" data-tab="history"><span>📜</span>History</button>
+    <button type="button" data-tab="me"><span>🏅</span>Me</button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
