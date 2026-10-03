@@ -7,6 +7,7 @@ import { tripCalories } from "./calories.js";
 import { segmentSpeeds, speedRange, colouredRuns } from "./charts.js";
 import { icon } from "./icons.js";
 import { emptyUsage } from "./usage.js";
+import { t, setLang, detectLang } from "./i18n.js";
 
 export const L = window.L;
 export const store = createStore();
@@ -22,11 +23,16 @@ const DEFAULTS = {
   interests: [],
   profile: { weightKg: 70, age: null, sex: "" },
   usage: emptyUsage(),
+  lang: null, // null = follow the phone
+  recentStarts: [], // [{ lat, lng, label }]
+  loopByMode: { walk: true, run: true, bike: true, moto: false, car: false },
 };
 export const settings = store.getSettings(DEFAULTS);
 settings.choice = { ...DEFAULTS.choice, ...settings.choice };
 settings.profile = { ...DEFAULTS.profile, ...settings.profile };
 settings.usage = { ...emptyUsage(), ...settings.usage };
+settings.loopByMode = { ...DEFAULTS.loopByMode, ...settings.loopByMode };
+setLang(settings.lang || detectLang());
 
 /** Replace <i data-icon="name"> placeholders with SVG icons. */
 export function hydrateIcons(root = document) {
@@ -35,13 +41,17 @@ export function hydrateIcons(root = document) {
 export const saveSettings = () => store.saveSettings(settings);
 
 export const state = {
-  position: null, // { lat, lng, accuracy, ele? }
+  position: null, // { lat, lng, accuracy, ele? } from GPS
+  start: null, // custom start { lat, lng, label }; null = use GPS position
   gpsOk: false,
   trip: null, // TripTracker
   view: "go",
   hr: { conn: null, bpm: null, at: 0 },
   routes: new Map(), // place id -> fetched route { points, distance, duration }
 };
+
+/** Where suggestions start from: a chosen start point, else the GPS position. */
+export const startPoint = () => state.start || state.position;
 
 export const kcalFor = (trip) => tripCalories(trip, settings.profile);
 
@@ -65,7 +75,7 @@ export const map = L.map("map", { zoomControl: false }).setView(
 
 const STYLES = {
   map: {
-    label: "Map",
+    label: "map.map",
     layers: () => [
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
@@ -74,7 +84,7 @@ const STYLES = {
     ],
   },
   satellite: {
-    label: "Satellite",
+    label: "map.satellite",
     layers: () => [
       L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
         maxZoom: 19,
@@ -86,7 +96,7 @@ const STYLES = {
     ],
   },
   topo: {
-    label: "Terrain",
+    label: "map.topo",
     layers: () => [
       L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
         maxZoom: 17,
@@ -107,8 +117,8 @@ export function setMapStyle(style) {
   settings.mapStyle = style;
   saveSettings();
   const next = STYLE_ORDER[(STYLE_ORDER.indexOf(style) + 1) % STYLE_ORDER.length];
-  $("#layer-btn").setAttribute("aria-label", `Switch to ${STYLES[next].label}`);
-  return STYLES[style].label;
+  $("#layer-btn").setAttribute("aria-label", t(STYLES[next].label));
+  return t(STYLES[style].label);
 }
 setMapStyle(settings.mapStyle);
 $("#layer-btn").addEventListener("click", () => {
@@ -120,7 +130,22 @@ export const layers = {
   me: null,
   view: L.layerGroup().addTo(map), // whatever the current screen shows; cleared on navigation
   trip: L.layerGroup().addTo(map), // the trip in progress
+  start: null, // marker of a custom start point
 };
+
+/** Show (or remove) the custom start marker. */
+export function drawStart() {
+  if (layers.start) {
+    map.removeLayer(layers.start);
+    layers.start = null;
+  }
+  if (!state.start) return;
+  layers.start = L.marker([state.start.lat, state.start.lng], {
+    icon: L.divIcon({ className: "", html: `<div class="start-pin">${icon("flag")}</div>`, iconSize: [30, 30], iconAnchor: [15, 15] }),
+    zIndexOffset: 900,
+    interactive: false,
+  }).addTo(map);
+}
 
 export const pinIcon = (category, selected = false, mystery = false) =>
   L.divIcon({

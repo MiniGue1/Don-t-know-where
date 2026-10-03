@@ -1,6 +1,9 @@
 // Activity: totals, outings list, saved/imported routes, and imports from other apps.
 
-import { $, L, esc, toast, state, settings, store, layers, fitTo, views, showView, shareStuff, downloadFile } from "../app.js";
+import { $, L, esc, toast, state, settings, store, layers, map, fitTo, views, showView, shareStuff, downloadFile, startPoint } from "../app.js";
+import { t, getLang } from "../i18n.js";
+import { geocode } from "../geocode.js";
+import { visitedSquares, exploredPercent, squareBounds } from "../explore.js";
 import { MODES, formatSpeed } from "../modes.js";
 import { icon } from "../icons.js";
 import { records } from "../stats.js";
@@ -19,14 +22,64 @@ export function guessMode(kmh) {
   return "car";
 }
 
+// ---------------------------------------------------------------- exploration squares
+
+let showSquares = false;
+let squaresLayer = null;
+
+/** Where "around you" is: the chosen start, GPS, or the last known position. */
+const homeArea = () => startPoint() || settings.lastPosition;
+
+function renderExplore(history) {
+  const visited = visitedSquares(history);
+  const row = $("#explore-row");
+  row.hidden = !visited.size;
+  if (!visited.size) return;
+  const center = homeArea();
+  const pct = center ? exploredPercent(visited, center, 5) : null;
+  $("#explore-pct").textContent = pct != null ? t("act.explored", { pct: pct.toLocaleString(getLang()) }) : "";
+  $("#explore-count").textContent = t("act.squares", { n: visited.size });
+  $("#explore-toggle").textContent = t(showSquares ? "act.hideMap" : "act.showMap");
+  if (showSquares) drawSquares(visited);
+}
+
+function drawSquares(visited = visitedSquares(store.getHistory())) {
+  if (squaresLayer) layers.view.removeLayer(squaresLayer);
+  squaresLayer = L.layerGroup().addTo(layers.view);
+  const b = map.getBounds().pad(0.2);
+  for (const key of visited) {
+    const [x, y] = key.split(",").map(Number);
+    const bounds = squareBounds(x, y);
+    if (!b.intersects(bounds)) continue;
+    L.rectangle(bounds, { color: "#0f766e", weight: 1, opacity: 0.6, fillColor: "#14b8a6", fillOpacity: 0.35, interactive: false }).addTo(squaresLayer);
+  }
+}
+
+$("#explore-row").addEventListener("click", () => {
+  showSquares = !showSquares;
+  if (!showSquares && squaresLayer) {
+    layers.view.removeLayer(squaresLayer);
+    squaresLayer = null;
+  }
+  if (showSquares && homeArea()) map.setView([homeArea().lat, homeArea().lng], 13);
+  renderExplore(store.getHistory());
+});
+map.on("moveend", () => {
+  if (showSquares && state.view === "activity") drawSquares();
+});
+
+// ---------------------------------------------------------------- lists
+
 function render() {
   const history = store.getHistory();
   const r = records(history);
+  squaresLayer = null;
+  renderExplore(history);
   $("#history-summary").hidden = !history.length;
   $("#history-summary").innerHTML = [
-    [r.placesVisited, "places"],
-    [formatDistance(r.totalDistance), "total"],
-    [r.streakDays, r.streakDays === 1 ? "day streak" : "days streak"],
+    [r.placesVisited, t("act.places")],
+    [formatDistance(r.totalDistance), t("act.total")],
+    [r.streakDays, t("act.streak")],
   ]
     .map(([v, l]) => `<div class="stat"><span class="stat-v">${esc(v)}</span><span class="stat-l">${l}</span></div>`)
     .join("");
@@ -40,37 +93,37 @@ function render() {
         <span class="card-icon">${icon("route-2")}</span>
         <div class="grow">
           <h3>${esc(rt.name)}</h3>
-          <div class="meta">${formatDistance(rt.length)} · from ${esc(rt.source)}</div>
+          <div class="meta">${formatDistance(rt.length)} · ${esc(t("act.from", { src: rt.source }))}</div>
         </div>
       </div>
       <div class="actions">
-        <button type="button" class="btn primary grow" data-follow="${esc(rt.id)}">Go</button>
-        <button type="button" class="icon-btn" data-share-route="${esc(rt.id)}" aria-label="Share route">${icon("share")}</button>
-        <button type="button" class="icon-btn" data-del-route="${esc(rt.id)}" aria-label="Delete route">${icon("trash")}</button>
+        <button type="button" class="btn primary grow" data-follow="${esc(rt.id)}">${esc(t("go.go"))}</button>
+        <button type="button" class="icon-btn" data-share-route="${esc(rt.id)}" aria-label="${esc(t("act.shareRoute"))}">${icon("share")}</button>
+        <button type="button" class="icon-btn" data-del-route="${esc(rt.id)}" aria-label="${esc(t("act.deleteRoute"))}">${icon("trash")}</button>
       </div>
     </div>`
     )
     .join("");
 
   if (!history.length) {
-    $("#history-list").innerHTML = `<div class="empty">Nothing here yet.</div>`;
+    $("#history-list").innerHTML = `<div class="empty">${esc(t("act.empty"))}</div>`;
     return;
   }
   $("#history-list").innerHTML = history
-    .map((t) => {
-      const d = new Date(t.startedAt);
-      const sp = formatSpeed(t.mode, t.avgSpeedKmh);
+    .map((trip) => {
+      const d = new Date(trip.startedAt);
+      const sp = formatSpeed(trip.mode, trip.avgSpeedKmh);
       const parts = [
-        formatDistance(t.distance),
-        t.travelSec != null ? formatDuration(t.travelSec) : null,
+        formatDistance(trip.distance),
+        trip.travelSec != null ? formatDuration(trip.travelSec) : null,
         `${sp.value} ${sp.unit}`,
       ].filter(Boolean);
-      return `<div class="card" data-trip="${esc(t.id)}">
+      return `<div class="card" data-trip="${esc(trip.id)}">
         <div class="card-top">
-          <span class="card-icon">${icon(MODES[t.mode]?.icon || "walk")}</span>
+          <span class="card-icon">${icon(trip.loop ? "repeat" : MODES[trip.mode]?.icon || "walk")}</span>
           <div class="grow">
-            <h3>${esc(t.place.name)}</h3>
-            <div class="meta">${d.toLocaleDateString([], { day: "numeric", month: "short" })} · ${esc(parts.join(" · "))}</div>
+            <h3>${esc(trip.place.name)}</h3>
+            <div class="meta">${d.toLocaleDateString(getLang(), { day: "numeric", month: "short" })} · ${esc(parts.join(" · "))}</div>
           </div>
         </div>
       </div>`;
@@ -88,7 +141,7 @@ $("#routes-list").addEventListener("click", async (e) => {
   const find = (id) => routes.find((r) => r.id === id);
   const del = e.target.closest("[data-del-route]");
   if (del) {
-    if (confirm("Delete this route?")) {
+    if (confirm(t("act.deleteRouteQ"))) {
       store.deleteRoute(del.dataset.delRoute);
       layers.view.clearLayers();
       render();
@@ -101,7 +154,7 @@ $("#routes-list").addEventListener("click", async (e) => {
     const pts = rt.points.map(([lat, lng]) => ({ lat, lng }));
     const gpx = routeToGpx({ name: rt.name, points: pts });
     const file = new File([gpx], gpxFileName(rt.name), { type: "application/gpx+xml" });
-    const res = await shareStuff({ title: rt.name, text: `Route: ${rt.name} (${formatDistance(rt.length)})`, file });
+    const res = await shareStuff({ title: rt.name, text: t("act.routeText", { name: rt.name, dist: formatDistance(rt.length) }), file });
     if (res === "copied" || res === "failed") downloadFile(gpxFileName(rt.name), gpx);
     return;
   }
@@ -119,7 +172,7 @@ $("#routes-list").addEventListener("click", async (e) => {
       lng: end.lng,
       via: viaPoints(pts, 3),
     };
-    startTrip(place, rt.mode || settings.choice.mode, pts);
+    startTrip(place, rt.mode || settings.choice.mode, pts, { origin: pts[0] });
     return;
   }
   const card = e.target.closest("[data-route]");
@@ -177,11 +230,8 @@ export function importItems(items, source) {
 }
 
 function reportImport({ activities, routes }) {
-  if (!activities && !routes) return toast("Nothing new in that file");
-  const parts = [];
-  if (activities) parts.push(`${activities} activit${activities === 1 ? "y" : "ies"}`);
-  if (routes) parts.push(`${routes} route${routes === 1 ? "" : "s"}`);
-  toast(`Imported ${parts.join(" and ")}`);
+  if (!activities && !routes) return toast(t("act.nothingNew"));
+  toast(t("act.importedN", { n: activities + routes }));
   render();
 }
 
@@ -210,22 +260,17 @@ function sortHistory() {
   store.replaceHistory(store.getHistory().sort((a, b) => b.startedAt - a.startedAt));
 }
 
-async function geocode(query) {
-  const near = state.position ? `&viewbox=${state.position.lng - 1},${state.position.lat + 1},${state.position.lng + 1},${state.position.lat - 1}` : "";
-  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}${near}`, {
-    headers: { Accept: "application/json" },
-  });
-  const [hit] = await res.json();
-  if (!hit) throw new Error(`Couldn't find “${query}”`);
-  return { lat: +hit.lat, lng: +hit.lon };
-}
 
 $("#import-link-btn").addEventListener("click", async () => {
   const input = $("#import-link").value;
   const parsed = parseMapLink(input);
-  if (!parsed) return toast("Paste a full Google Maps directions link", 3500);
+  if (!parsed) return toast(t("act.badLink"), 3500);
   try {
-    let stops = await Promise.all(parsed.stops.map((s) => (s.query ? geocode(s.query) : s)));
+    const find = (q) =>
+      geocode(q, { near: startPoint(), lang: getLang() }).catch(() => {
+        throw new Error(t("act.notFound", { q }));
+      });
+    let stops = await Promise.all(parsed.stops.map((s) => (s.query ? find(s.query) : s)));
     if (stops.length === 1 && state.position) stops = [{ ...state.position }, stops[0]];
     const tm = new URL(input).searchParams.get("travelmode");
     const mode = { walking: "walk", bicycling: "bike", driving: "car", two_wheeler: "moto" }[tm] || settings.choice.mode;
@@ -240,7 +285,7 @@ $("#import-link-btn").addEventListener("click", async () => {
     $("#import-link").value = "";
     reportImport({ activities: 0, routes: 1 });
   } catch (err) {
-    toast(err.message || "Couldn't import that link", 4000);
+    toast(err.message || t("act.badLink"), 4000);
   }
 });
 

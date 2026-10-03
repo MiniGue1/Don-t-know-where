@@ -2,9 +2,19 @@
 // and you swap a small "card" link with friends. Nothing is uploaded anywhere.
 
 import { visitedIds, streakDays } from "./stats.js";
+import { visitedSquares } from "./explore.js";
 
-const ADJ = ["Wandering", "Curious", "Speedy", "Lost", "Sneaky", "Brave", "Sleepy", "Wild", "Jolly", "Restless", "Lucky", "Dizzy"];
-const ANIMAL = ["Otter", "Fox", "Moose", "Badger", "Goat", "Owl", "Panda", "Hedgehog", "Llama", "Raccoon", "Yak", "Penguin"];
+const NAMES = {
+  en: {
+    adj: ["Wandering", "Curious", "Speedy", "Lost", "Sneaky", "Brave", "Sleepy", "Wild", "Jolly", "Restless", "Lucky", "Dizzy"],
+    noun: ["Otter", "Fox", "Moose", "Badger", "Goat", "Owl", "Panda", "Hedgehog", "Llama", "Raccoon", "Yak", "Penguin"],
+  },
+  // Czech adjectives must agree in gender with the noun, so these are kept as whole names.
+  cs: [
+    "Bloudivá Vydra", "Zvědavá Liška", "Rychlý Los", "Ztracený Jezevec", "Tichá Sova", "Odvážný Kozel",
+    "Ospalá Panda", "Divoký Ježek", "Veselá Lama", "Neposedný Mýval", "Šťastný Jak", "Zmatený Tučňák",
+  ],
+};
 // Avatar = a colour; shown as a circle with the nickname's initials.
 export const AVATAR_COLORS = ["#0f766e", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#4f46e5", "#be123c"];
 const isColor = (c) => typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c);
@@ -24,11 +34,11 @@ export const initials = (name) =>
     .map((w) => [...w][0].toUpperCase())
     .join("");
 
-export function newIdentity(rand = Math.random) {
+export function newIdentity(rand = Math.random, lang = "en") {
   const pick = (a) => a[Math.floor(rand() * a.length)];
   return {
     id: Array.from({ length: 10 }, () => Math.floor(rand() * 36).toString(36)).join(""),
-    name: `${pick(ADJ)} ${pick(ANIMAL)}`,
+    name: lang === "cs" ? pick(NAMES.cs) : `${pick(NAMES.en.adj)} ${pick(NAMES.en.noun)}`,
     avatar: pick(AVATAR_COLORS),
   };
 }
@@ -52,6 +62,7 @@ export function myStats(history, kcal = () => 0, now = Date.now()) {
     weekKm: +(week.filter(human).reduce((s, t) => s + (t.distance || 0), 0) / 1000).toFixed(1),
     weekKcal: Math.round(week.reduce((s, t) => s + kcal(t), 0)),
     places: visitedIds(history).size,
+    squares: visitedSquares(history).size,
     streak: streakDays(history, now),
     totalKm: +(history.reduce((s, t) => s + (t.distance || 0), 0) / 1000).toFixed(1),
     week: ws,
@@ -85,6 +96,7 @@ export function encodeCard(identity, stats, now = Date.now()) {
       p: stats.places,
       s: stats.streak,
       tk: stats.totalKm,
+      q: stats.squares,
       w: stats.week,
       u: now,
     })
@@ -99,7 +111,7 @@ export function decodeCard(code) {
     id: o.i.slice(0, 20),
     name: o.n.slice(0, 32),
     avatar: isColor(o.a) ? o.a : colorFor(o.i),
-    stats: { weekKm: n(o.wk), weekKcal: n(o.wc), places: n(o.p), streak: n(o.s), totalKm: n(o.tk), week: n(o.w) },
+    stats: { weekKm: n(o.wk), weekKcal: n(o.wc), places: n(o.p), squares: n(o.q), streak: n(o.s), totalKm: n(o.tk), week: n(o.w) },
     updatedAt: n(o.u),
   };
 }
@@ -112,11 +124,12 @@ export function extractCode(text) {
   return /^[A-Za-z0-9_-]{20,}$/.test(t) ? t : null;
 }
 
+// Labels and units are i18n keys: board.<id> and unit.<id>.
 export const BOARDS = {
-  weekKm: { id: "weekKm", label: "Week", unit: "km", weekly: true, hint: "km on foot or bike" },
-  places: { id: "places", label: "Places", unit: "", hint: "different places discovered" },
-  streak: { id: "streak", label: "Streak", unit: "d", hint: "days in a row" },
-  weekKcal: { id: "weekKcal", label: "Calories", unit: "kcal", weekly: true, hint: "burned this week" },
+  weekKm: { id: "weekKm", weekly: true },
+  squares: { id: "squares" },
+  places: { id: "places" },
+  streak: { id: "streak" },
 };
 
 /** Ranked rows for a board. Weekly boards zero out friends' cards from older weeks. */

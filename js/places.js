@@ -83,6 +83,8 @@ export function parseOverpass(json) {
       lat,
       lng,
       wikipedia: tags.wikipedia || null,
+      wikidata: tags.wikidata || null,
+      image: tags.image || null,
       website: tags.website || null,
     });
   }

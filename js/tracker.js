@@ -9,7 +9,7 @@ const MAX_ACCURACY_M = 60; // ignore fixes worse than this
 const MIN_STEP_M = 3; // ignore GPS jitter smaller than this
 
 export class TripTracker {
-  constructor({ mode, place, startedAt = Date.now(), id }) {
+  constructor({ mode, place, startedAt = Date.now(), id, home = null }) {
     this.id = id || `trip-${startedAt}`;
     this.mode = mode;
     this.place = place;
@@ -22,6 +22,8 @@ export class TripTracker {
     this.dwellSec = 0;
     this.maxSpeedKmh = 0;
     this.hr = []; // [[t, bpm], ...] from a connected watch / strap
+    this.home = home ? { lat: home.lat, lng: home.lng } : null; // loops: where to come back to
+    this.homeAt = null;
     this._lastNear = null; // timestamp of last fix that was at the place
   }
 
@@ -62,6 +64,11 @@ export class TripTracker {
 
     let event = null;
     const near = distance(p, this.place) <= this.arriveRadius;
+    if (this.arrived && this.home && this.homeAt == null && distance(p, this.home) <= this.arriveRadius * 1.5) {
+      this.homeAt = p.t;
+      this._accumulateDwell(p);
+      return "home";
+    }
     if (near && !this.arrived) {
       this.arrivedAt = p.t;
       this.distanceToArrival = this.distance;
@@ -90,8 +97,18 @@ export class TripTracker {
 
   _accumulateDwell(p) {
     if (!this.arrived) return;
-    const near = distance(p, this.place) <= this.arriveRadius * 1.5;
-    if (near && this._lastNear != null) this.dwellSec += (p.t - this._lastNear) / 1000;
+    const d = distance(p, this.place);
+    const near = d <= this.arriveRadius * 1.5;
+    if (this._lastNear != null) {
+      const gap = (p.t - this._lastNear) / 1000;
+      if (near) this.dwellSec += gap;
+      else {
+        // Phones send few fixes while you stand still, so the first fix after leaving
+        // can come much later. Count that gap, minus the time it took to walk away.
+        const speed = (MODES[this.mode]?.defaultSpeedKmh ?? 5) / 3.6;
+        this.dwellSec += Math.max(0, gap - Math.max(0, d - this.arriveRadius) / speed);
+      }
+    }
     this._lastNear = near ? p.t : null;
   }
 
@@ -119,6 +136,8 @@ export class TripTracker {
       },
       startedAt: this.startedAt,
       arrivedAt: this.arrivedAt,
+      loop: Boolean(this.home),
+      homeAt: this.homeAt,
       endedAt,
       arrived: this.arrived,
       distance: Math.round(this.distance),
@@ -142,7 +161,7 @@ export class TripTracker {
   }
 
   static fromJSON(obj) {
-    const t = new TripTracker({ mode: obj.mode, place: obj.place, startedAt: obj.startedAt, id: obj.id });
+    const t = new TripTracker({ mode: obj.mode, place: obj.place, startedAt: obj.startedAt, id: obj.id, home: obj.home });
     Object.assign(t, obj);
     return t;
   }

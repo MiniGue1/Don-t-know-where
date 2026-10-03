@@ -15,67 +15,94 @@
   <link rel="stylesheet" href="css/app.css" />
 </head>
 <body>
-  <div id="map" aria-label="Map"></div>
+  <div id="map"></div>
 
   <div class="fabs">
-    <button id="layer-btn" class="fab" type="button" aria-label="Map style"><i data-icon="stack-2"></i></button>
-    <button id="locate-btn" class="fab" type="button" aria-label="My location"><i data-icon="current-location"></i></button>
+    <button id="layer-btn" class="fab" type="button" data-i18n-attr="aria-label:map.style"><i data-icon="stack-2"></i></button>
+    <button id="locate-btn" class="fab" type="button" data-i18n-attr="aria-label:map.me"><i data-icon="current-location"></i></button>
   </div>
   <div id="hr-pill" class="pill" hidden><i data-icon="heart"></i> <span id="hr-value">–</span></div>
+  <div id="pick-banner" class="banner" hidden><span data-i18n="go.tapMap"></span><button type="button" id="pick-cancel" class="icon-btn small" data-i18n-attr="aria-label:trip.cancel"><i data-icon="x"></i></button></div>
 
   <!-- GO -->
   <section id="view-go" class="sheet view" data-view="go">
     <div class="grabber"></div>
 
     <div class="step" data-step="mode">
-      <h1 class="title big">Where to?</h1>
+      <h1 class="title big" data-i18n="go.title"></h1>
+      <button type="button" id="from-btn" class="from-row">
+        <i data-icon="flag"></i>
+        <span class="grow"><small data-i18n="go.from"></small> <b id="from-label"></b></span>
+        <i data-icon="chevron-right"></i>
+      </button>
+      <div id="from-menu" class="panel" hidden>
+        <div class="from-options">
+          <button type="button" data-from="gps"><i data-icon="current-location"></i><span data-i18n="go.myLocation"></span></button>
+          <button type="button" data-from="map"><i data-icon="map-pin"></i><span data-i18n="go.pickOnMap"></span></button>
+        </div>
+        <form id="from-search" class="search-row">
+          <i data-icon="search"></i>
+          <input id="from-query" class="input grow" type="search" autocomplete="off" data-i18n-attr="placeholder:go.searchPh" />
+        </form>
+        <div id="from-results" class="from-list"></div>
+      </div>
       <p class="hint" id="location-status" hidden></p>
       <button type="button" id="usual-btn" class="usual" hidden></button>
       <div class="tiles" id="mode-picker"></div>
     </div>
 
     <div class="step" data-step="length" hidden>
-      <div class="step-head"><button type="button" class="back" data-back="mode" aria-label="Back"><i data-icon="arrow-left"></i></button><h1 class="title">How long?</h1></div>
+      <div class="step-head">
+        <button type="button" class="back" data-back="mode" data-i18n-attr="aria-label:go.back"><i data-icon="arrow-left"></i></button>
+        <h1 class="title grow" data-i18n="go.howLong"></h1>
+      </div>
+      <div class="toggle" id="trip-type" role="radiogroup">
+        <button type="button" data-loop="0" role="radio"><i data-icon="arrow-narrow-right"></i><span data-i18n="go.oneWay"></span></button>
+        <button type="button" data-loop="1" role="radio"><i data-icon="repeat"></i><span data-i18n="go.loop"></span></button>
+      </div>
       <div class="rows" id="length-picker"></div>
     </div>
 
     <div class="step" data-step="option" hidden>
-      <div class="step-head"><button type="button" class="back" data-back="length" aria-label="Back"><i data-icon="arrow-left"></i></button><h1 class="title" id="option-title">How hard?</h1></div>
+      <div class="step-head">
+        <button type="button" class="back" data-back="length" data-i18n-attr="aria-label:go.back"><i data-icon="arrow-left"></i></button>
+        <h1 class="title grow" id="option-title"></h1>
+      </div>
       <div class="rows" id="option-picker"></div>
     </div>
 
     <div class="step" data-step="results" hidden>
       <div class="step-head">
-        <button type="button" class="back" data-back="option" aria-label="Back"><i data-icon="arrow-left"></i></button>
+        <button type="button" class="back" data-back="option" data-i18n-attr="aria-label:go.back"><i data-icon="arrow-left"></i></button>
         <span class="grow"></span>
-        <button type="button" class="icon-btn" id="reroll-btn" aria-label="Another idea"><i data-icon="dice-5"></i></button>
+        <button type="button" class="icon-btn" id="reroll-btn" data-i18n-attr="aria-label:go.another"><i data-icon="dice-5"></i></button>
       </div>
       <div id="result-list" class="cards"></div>
-      <button type="button" class="link-btn" id="more-btn">More ideas</button>
+      <button type="button" class="link-btn" id="more-btn" data-i18n="go.moreIdeas"></button>
     </div>
 
     <div class="step" data-step="loading" hidden>
-      <div class="loading"><div class="spinner"></div><p id="loading-text">Looking around</p></div>
+      <div class="loading"><div class="spinner"></div><p id="loading-text"></p></div>
     </div>
   </section>
 
   <!-- TRIP -->
   <section id="view-trip" class="sheet view" data-view="trip" hidden>
     <div class="grabber"></div>
-    <span class="label" id="trip-status">On the way</span>
+    <span class="label" id="trip-status"></span>
     <h2 class="title" id="trip-place"></h2>
     <div class="stats-grid three">
-      <div class="stat"><span class="stat-v" id="trip-remaining">–</span><span class="stat-l">to go</span></div>
-      <div class="stat"><span class="stat-v" id="trip-elapsed">0:00</span><span class="stat-l">time</span></div>
+      <div class="stat"><span class="stat-v" id="trip-remaining">–</span><span class="stat-l" data-i18n="trip.toGo"></span></div>
+      <div class="stat"><span class="stat-v" id="trip-elapsed">0:00</span><span class="stat-l" data-i18n="trip.time"></span></div>
       <div class="stat"><span class="stat-v" id="trip-speed">–</span><span class="stat-l" id="trip-speed-unit">km/h</span></div>
     </div>
-    <a id="nav-main" class="btn full" target="_blank" rel="noopener">Navigate</a>
+    <a id="nav-main" class="btn full" target="_blank" rel="noopener"></a>
     <div class="alt-links" id="nav-alt"></div>
-    <button id="finish-btn" class="btn primary full" type="button">Finish</button>
+    <button id="finish-btn" class="btn primary full" type="button" data-i18n="trip.finish"></button>
     <div class="text-actions">
-      <button id="here-btn" type="button">I'm here</button>
-      <button id="course-btn" type="button">Send to watch</button>
-      <button id="cancel-trip-btn" type="button" class="danger">Cancel</button>
+      <button id="here-btn" type="button" data-i18n="trip.here"></button>
+      <button id="course-btn" type="button" data-i18n="trip.watch"></button>
+      <button id="cancel-trip-btn" type="button" class="danger" data-i18n="trip.cancel"></button>
     </div>
   </section>
 
@@ -83,7 +110,7 @@
   <section id="view-recap" class="sheet view recap" data-view="recap" hidden>
     <div class="grabber"></div>
     <div class="step-head">
-      <button type="button" class="back" id="recap-back" aria-label="Back"><i data-icon="arrow-left"></i></button>
+      <button type="button" class="back" id="recap-back" data-i18n-attr="aria-label:go.back"><i data-icon="arrow-left"></i></button>
       <div class="grow">
         <h1 class="title" id="recap-title"></h1>
         <span class="hint" id="recap-sub"></span>
@@ -94,104 +121,113 @@
     <div id="recap-charts"></div>
     <div class="legend" id="recap-legend"></div>
     <div class="row">
-      <button id="recap-share" class="btn primary grow" type="button"><i data-icon="share"></i> Share</button>
+      <button id="recap-share" class="btn primary grow" type="button"><i data-icon="share"></i> <span data-i18n="recap.share"></span></button>
       <button id="recap-gpx" class="btn grow" type="button"><i data-icon="download"></i> GPX</button>
     </div>
-    <div class="text-actions"><button id="recap-delete" type="button" class="danger">Delete</button></div>
+    <div class="text-actions"><button id="recap-delete" type="button" class="danger" data-i18n="recap.delete"></button></div>
   </section>
 
   <!-- ACTIVITY -->
   <section id="view-activity" class="sheet view tall" data-view="activity" hidden>
     <div class="grabber"></div>
     <div class="step-head">
-      <h1 class="title grow">Activity</h1>
-      <button id="import-btn" class="icon-btn" type="button" aria-label="Import"><i data-icon="upload"></i></button>
+      <h1 class="title grow" data-i18n="act.title"></h1>
+      <button id="import-btn" class="icon-btn" type="button" data-i18n-attr="aria-label:act.import"><i data-icon="upload"></i></button>
     </div>
     <div id="import-panel" class="panel" hidden>
-      <p class="hint small">GPX, TCX, KML, GeoJSON or a Google Timeline file. Or paste a Google Maps link.</p>
-      <label class="btn full" for="import-file">Choose file</label>
+      <p class="hint small" data-i18n="act.importHint"></p>
+      <label class="btn full" for="import-file" data-i18n="act.chooseFile"></label>
       <input id="import-file" type="file" accept=".gpx,.tcx,.kml,.geojson,.json,application/gpx+xml,application/json" hidden multiple />
       <div class="row">
-        <input id="import-link" class="input grow" type="url" placeholder="Google Maps link" />
-        <button id="import-link-btn" class="btn" type="button">Add</button>
+        <input id="import-link" class="input grow" type="url" data-i18n-attr="placeholder:act.linkPh" />
+        <button id="import-link-btn" class="btn" type="button" data-i18n="act.add"></button>
       </div>
     </div>
+    <button type="button" id="explore-row" class="explore-row" hidden>
+      <span class="grow"><b id="explore-pct"></b><small id="explore-count"></small></span>
+      <span class="link-btn" id="explore-toggle"></span>
+    </button>
     <div id="history-summary" class="stats-grid three"></div>
     <div id="routes-block">
-      <span class="label">Saved routes</span>
+      <span class="label" data-i18n="act.saved"></span>
       <div id="routes-list" class="cards"></div>
     </div>
     <div id="history-list" class="cards"></div>
   </section>
 
-  <!-- RANKS -->
+  <!-- FRIENDS -->
   <section id="view-ranks" class="sheet view tall" data-view="ranks" hidden>
     <div class="grabber"></div>
     <div class="me-card">
       <span id="my-avatar" class="avatar"></span>
-      <input id="nickname" class="input name-input grow" maxlength="32" aria-label="Your nickname" />
+      <input id="nickname" class="input name-input grow" maxlength="32" data-i18n-attr="aria-label:ranks.nick" />
     </div>
     <div class="segmented four" id="board-picker"></div>
     <div id="board" class="board"></div>
     <div class="row">
-      <button id="share-card-btn" class="btn primary grow" type="button">Invite friends</button>
-      <button id="add-friend-btn" class="icon-btn" type="button" aria-label="Add a friend's code"><i data-icon="plus"></i></button>
+      <button id="share-card-btn" class="btn primary grow" type="button" data-i18n="ranks.invite"></button>
+      <button id="add-friend-btn" class="icon-btn" type="button" data-i18n-attr="aria-label:ranks.addCode"><i data-icon="plus"></i></button>
     </div>
     <div id="add-friend-panel" class="row" hidden>
-      <input id="friend-code" class="input grow" placeholder="Friend's link" />
-      <button id="friend-add" class="btn" type="button">Add</button>
+      <input id="friend-code" class="input grow" data-i18n-attr="placeholder:ranks.friendPh" />
+      <button id="friend-add" class="btn" type="button" data-i18n="act.add"></button>
     </div>
-    <p class="hint small">Only your nickname and totals are shared.</p>
+    <p class="hint small" data-i18n="ranks.onlyTotals"></p>
   </section>
 
   <!-- ME -->
   <section id="view-me" class="sheet view tall" data-view="me" hidden>
     <div class="grabber"></div>
-    <h1 class="title">Me</h1>
+    <h1 class="title" data-i18n="me.title"></h1>
     <div id="records"></div>
 
     <details class="section">
-      <summary>Watch &amp; Garmin</summary>
-      <div class="row between">
-        <div><b>Heart rate</b><br /><span class="hint small" id="hrm-status">Not connected</span></div>
-        <button id="hrm-btn" class="btn" type="button">Connect</button>
-      </div>
-      <p class="hint small">On a Garmin, turn on Broadcast Heart Rate first. Needs Chrome on Android.</p>
-      <p class="hint small">To get an outing into Garmin Connect or Strava, use GPX in the recap and import it there. To get a watch activity in here, export GPX from Garmin Connect and import it in Activity.</p>
+      <summary data-i18n="me.language"></summary>
+      <div class="chips" id="lang-picker"></div>
     </details>
 
     <details class="section">
-      <summary>Calories</summary>
+      <summary data-i18n="me.watch"></summary>
+      <div class="row between">
+        <div><b data-i18n="me.hr"></b><br /><span class="hint small" id="hrm-status"></span></div>
+        <button id="hrm-btn" class="btn" type="button"></button>
+      </div>
+      <p class="hint small" data-i18n="me.hrHint1"></p>
+      <p class="hint small" data-i18n="me.hrHint2"></p>
+    </details>
+
+    <details class="section">
+      <summary data-i18n="me.calSection"></summary>
       <div class="row wrap">
-        <label class="mini">Weight <input id="p-weight" class="input" type="number" min="25" max="250" inputmode="numeric" /> kg</label>
-        <label class="mini">Age <input id="p-age" class="input" type="number" min="10" max="100" inputmode="numeric" /></label>
-        <label class="mini">Sex
-          <select id="p-sex" class="input"><option value="">–</option><option value="f">F</option><option value="m">M</option></select>
+        <label class="mini"><span data-i18n="me.weight"></span> <input id="p-weight" class="input" type="number" min="25" max="250" inputmode="numeric" /> kg</label>
+        <label class="mini"><span data-i18n="me.age"></span> <input id="p-age" class="input" type="number" min="10" max="100" inputmode="numeric" /></label>
+        <label class="mini"><span data-i18n="me.sex"></span>
+          <select id="p-sex" class="input"><option value="">–</option><option value="f" data-i18n="me.f"></option><option value="m" data-i18n="me.m"></option></select>
         </label>
       </div>
     </details>
 
     <details class="section">
-      <summary>Maps app</summary>
+      <summary data-i18n="me.mapsApp"></summary>
       <div class="chips" id="provider-picker"></div>
     </details>
 
     <details class="section">
-      <summary>Your data</summary>
-      <p class="hint small">No account, nothing leaves this phone.</p>
+      <summary data-i18n="me.data"></summary>
+      <p class="hint small" data-i18n="me.noAccount"></p>
       <div class="row wrap">
-        <button id="export-btn" class="btn" type="button">Back up</button>
-        <button id="clear-btn" class="btn ghost danger" type="button">Delete everything</button>
+        <button id="export-btn" class="btn" type="button" data-i18n="me.backup"></button>
+        <button id="clear-btn" class="btn ghost danger" type="button" data-i18n="me.deleteAll"></button>
       </div>
     </details>
-    <p class="hint small credits">Maps © OpenStreetMap, Esri · Icons Tabler</p>
+    <p class="hint small credits" data-i18n="me.credits"></p>
   </section>
 
-  <nav class="tabbar" aria-label="Sections">
-    <button type="button" data-tab="go" class="active" id="tab-go"><i data-icon="compass"></i>Go</button>
-    <button type="button" data-tab="activity"><i data-icon="chart-line"></i>Activity</button>
-    <button type="button" data-tab="ranks"><i data-icon="trophy"></i>Friends</button>
-    <button type="button" data-tab="me"><i data-icon="user"></i>Me</button>
+  <nav class="tabbar">
+    <button type="button" data-tab="go" class="active" id="tab-go"><i data-icon="compass"></i><span data-i18n="tab.go"></span></button>
+    <button type="button" data-tab="activity"><i data-icon="chart-line"></i><span data-i18n="tab.activity"></span></button>
+    <button type="button" data-tab="ranks"><i data-icon="trophy"></i><span data-i18n="tab.friends"></span></button>
+    <button type="button" data-tab="me"><i data-icon="user"></i><span data-i18n="tab.me"></span></button>
   </nav>
 
   <div id="toast" role="status" aria-live="polite"></div>

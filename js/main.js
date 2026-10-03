@@ -1,7 +1,8 @@
 // Boot: GPS, tabs, deep links, restore a running trip.
 
 import { $, state, settings, saveSettings, map, drawMe, showView, toast, hydrateIcons } from "./app.js";
-import { setLocationStatus } from "./ui/go.js";
+import { applyI18n, t } from "./i18n.js";
+import { updateLocationStatus } from "./ui/go.js";
 import { onTripFix, restoreTrip, renderTrip } from "./ui/trip.js";
 import "./ui/recap.js";
 import "./ui/activity.js";
@@ -10,51 +11,41 @@ import "./ui/me.js";
 
 // ---------------------------------------------------------------- location
 
-function setPosition(pos, fromGps) {
+function setPosition(pos) {
   const first = !state.position;
   state.position = pos;
-  state.gpsOk = state.gpsOk || fromGps;
+  state.gpsOk = true;
   settings.lastPosition = { lat: +pos.lat.toFixed(4), lng: +pos.lng.toFixed(4) };
   drawMe();
-  setLocationStatus(fromGps ? "" : "Start point set. Tap the map to move it.");
   if (first) {
+    updateLocationStatus();
     saveSettings();
-    if (!state.trip) map.setView([pos.lat, pos.lng], 15);
+    if (!state.trip && !state.start) map.setView([pos.lat, pos.lng], 15);
   }
 }
 
 function startGps() {
   if (!("geolocation" in navigator)) {
-    setLocationStatus("No GPS. Tap the map to set where you are.");
+    updateLocationStatus("none");
     return;
   }
   navigator.geolocation.watchPosition(
     (p) => {
       const fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy };
       if (p.coords.altitude != null) fix.ele = p.coords.altitude;
-      setPosition(fix, true);
+      setPosition(fix);
       onTripFix({ ...fix, t: Date.now() });
     },
     (err) => {
-      if (!state.gpsOk)
-        setLocationStatus(
-          err.code === 1
-            ? "Location is off. Allow it, or tap the map to set where you are."
-            : "No GPS yet. Tap the map to set where you are."
-        );
+      if (!state.gpsOk) updateLocationStatus(err.code === 1 ? "off" : "none");
     },
     { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }
   );
 }
 
-map.on("click", (e) => {
-  if (state.gpsOk || state.trip) return;
-  setPosition({ lat: e.latlng.lat, lng: e.latlng.lng, accuracy: 0 }, false);
-});
-
 $("#locate-btn").addEventListener("click", () => {
   if (state.position) map.setView([state.position.lat, state.position.lng], Math.max(map.getZoom(), 15));
-  else toast("Still looking for you");
+  else toast(t("loc.searching"));
 });
 
 // ---------------------------------------------------------------- shell
@@ -78,6 +69,7 @@ function handleHash() {
 window.addEventListener("hashchange", handleHash);
 
 hydrateIcons();
+applyI18n();
 if (!restoreTrip()) showView("go");
 renderTrip();
 handleHash();

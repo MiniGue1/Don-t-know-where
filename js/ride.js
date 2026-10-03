@@ -64,12 +64,12 @@ export function rideScore(route, style) {
   return { curvature: curv, kmh, score: 1 };
 }
 
-/** Human label for a curvature value. */
+/** i18n key describing a curvature value. */
 export function twistLabel(curv) {
-  if (curv >= 250) return "very twisty";
-  if (curv >= 150) return "twisty";
-  if (curv >= 80) return "some bends";
-  return "mostly straight";
+  if (curv >= 250) return "twist.very";
+  if (curv >= 150) return "twist.twisty";
+  if (curv >= 80) return "twist.some";
+  return "twist.straight";
 }
 
 /** A few points along a route, so a maps app follows the same roads. */

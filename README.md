@@ -8,6 +8,12 @@ Don't know where to go? Open the app and answer **"Where are you going now?"** w
 
 ## Features
 
+- **Czech and English.** The app follows the phone's language, and you can switch it under Me.
+- **Start from anywhere.** Use your GPS position, tap a point on the map, or search an address. The last three start points are remembered.
+- **Loops.** Choose "There" or "Loop". A loop takes you to the place and back to the start by a different way. Google Maps and Mapy.com get the whole loop; Apple Maps only navigates to the place. The app notices when you're back at the start.
+- **Photos and descriptions.** Places with a Wikipedia article show a photo and two sentences (Wikipedia, Wikidata and Wikimedia Commons; no account needed).
+- **Exploration map.** The map is split into squares of about 400 m. Activity shows which ones you've passed through and what share of the area around you (5 km) you've explored. Suggestions prefer unexplored squares, recaps show new squares, and there's a "Squares" leaderboard.
+- **Remembers your usual choice.** Your most-used modes come first, and an "As usual" button appears once you've picked the same combination twice.
 - **Picks somewhere new.** It finds viewpoints, castles, parks, waterfalls, museums, street art, cafés and more from OpenStreetMap. Places are ranked by:
   - your own pace for each sport
   - the length you chose
@@ -69,6 +75,12 @@ Plain HTML/CSS/JS ES modules with no build step. Leaflet is vendored in `vendor/
 | `js/leaderboard.js` | Friend cards (share codes) and rankings |
 | `js/hrm.js` | Bluetooth heart rate |
 | `js/elevation.js` | Elevation lookups (Open-Meteo) and climb calculation |
+| `js/i18n.js` | English and Czech text, plural forms |
+| `js/loop.js` | Loop planning (return point off to the side) |
+| `js/explore.js` | Exploration squares and explored share |
+| `js/wiki.js` | Photos and descriptions from Wikipedia/Wikidata |
+| `js/geocode.js` | Address search (Nominatim) |
+| `js/usage.js` | Remembers the user's usual choices |
 | `js/app.js`, `js/ui/*` | Map, screens |
 
 Data sources: © OpenStreetMap contributors (map, places, routing via routing.openstreetmap.de, geocoding via Nominatim), Esri World Imagery, OpenTopoMap, Open-Meteo elevation. For heavy use, switch to paid providers.

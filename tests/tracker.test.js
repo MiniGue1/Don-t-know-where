@@ -64,3 +64,13 @@ test("unfinished trip is still recorded", () => {
   assert.equal(rec.travelSec, null);
   assert.ok(rec.avgSpeedKmh > 5 && rec.avgSpeedKmh < 7);
 });
+
+test("time at the place counts even when the phone sent no fixes while standing still", () => {
+  const tr = new TripTracker({ mode: "walk", place, startedAt: 0 });
+  tr.addPoint({ ...destination(place, 270, 100), t: 0, accuracy: 5 });
+  tr.addPoint({ ...place, t: 60000, accuracy: 5 }); // arrive
+  // silence for 10 minutes, then the next fix is 100 m away
+  tr.addPoint({ ...destination(place, 90, 100), t: 60000 + 600000 + 60000, accuracy: 5 });
+  const rec = tr.finish(60000 + 600000 + 60000);
+  assert.ok(rec.dwellSec > 600 && rec.dwellSec < 660, `dwell ${rec.dwellSec}`);
+});

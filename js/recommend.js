@@ -3,6 +3,7 @@
 
 import { bearing, distance } from "./geo.js";
 import { personalSpeed, interestProfile, visitedIds } from "./stats.js";
+import { isNewSquare } from "./explore.js";
 
 // Real routes are longer than the straight line.
 export const DETOUR_FACTOR = 1.35;
@@ -37,7 +38,11 @@ function angleDiff(a, b) {
  * @param {string} opts.difficulty easy | moderate | hard (walk / run / bike)
  * @param {Map}    opts.elevations place id -> elevation (m), optional
  * @param {number} opts.startEle  elevation at `from`, optional
+ * @param {boolean} opts.loop     going there and back: the whole loop must fit the budget
+ * @param {Set}    opts.squares   visited exploration squares (bonus for unexplored ones)
  * @param {Function} opts.rand    RNG, injectable for tests
+ *
+ * Each result's `reasons` are i18n keys: [{ k: "r.new" }, { k: "r.climb", p: { m: 60 } }].
  */
 export function rankPlaces({
   places,
@@ -49,6 +54,8 @@ export function rankPlaces({
   difficulty = "moderate",
   elevations = null,
   startEle = null,
+  loop = false,
+  squares = null,
   rand = Math.random,
 }) {
   const speed = personalSpeed(history, mode);
@@ -62,8 +69,10 @@ export function rankPlaces({
     .map((t) => bearing({ lat: t.track[0][0], lng: t.track[0][1] }, t.place));
 
   // Ideal one-way minutes: harder = further out.
-  const target = minutes * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
-  const maxOneWay = minutes * 0.6;
+  // A loop is roughly twice the one-way distance, so aim closer.
+  const share = loop ? 0.75 : 1;
+  const target = minutes * share * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
+  const maxOneWay = minutes * (loop ? 0.45 : 0.6);
   const minDist = mode === "walk" ? 150 : mode === "bike" ? 400 : 1000;
   const picked = new Set(interests);
 
@@ -79,19 +88,19 @@ export function rankPlaces({
 
     let interest = picked.size ? (picked.has(p.category) ? 1 : 0.2) : 0.6;
     interest += 0.5 * (learned[p.category] || 0);
-    if (picked.has(p.category)) reasons.push("matches what you want to see");
-    else if ((learned[p.category] || 0) > 0.6) reasons.push("you tend to linger at places like this");
+    if (picked.has(p.category)) reasons.push({ k: "r.match" });
+    else if ((learned[p.category] || 0) > 0.6) reasons.push({ k: "r.linger" });
 
     const isNew = !visited.has(p.id);
     const novelty = isNew ? 1 : 0.15;
-    if (isNew) reasons.push("somewhere new");
+    if (isNew) reasons.push({ k: "r.new" });
 
     let direction = 1;
     if (recentBearings.length) {
       const b = bearing(from, p);
       const closest = Math.min(...recentBearings.map((rb) => angleDiff(rb, b)));
       direction = 0.7 + 0.3 * Math.min(1, closest / 90);
-      if (closest > 90) reasons.push("a direction you haven't explored lately");
+      if (closest > 90) reasons.push({ k: "r.direction" });
     }
 
     // Difficulty: prefer flat for easy, climbs for hard (when elevation is known).
@@ -103,13 +112,20 @@ export function rankPlaces({
       if (difficulty === "easy") terrain = grade > 3 ? 0.5 : 1;
       else if (difficulty === "hard") {
         terrain = 0.6 + Math.min(1.2, Math.max(0, grade) / 5);
-        if (climb > 40) reasons.push(`+${Math.round(climb)} m climb`);
+        if (climb > 40) reasons.push({ k: "r.climb", p: { m: Math.round(climb) } });
       }
     } else if (difficulty === "hard" && p.category === "views") terrain = 1.3;
 
     const named = p.named === false ? 0.75 : 1;
+    // Places with a Wikipedia article / photo tend to be worth the trip.
+    const notable = p.wikipedia || p.wikidata ? 1.15 : 1;
+    let unexplored = 1;
+    if (squares && isNewSquare(squares, p)) {
+      unexplored = 1.1;
+      if (!reasons.some((r) => r.k === "r.direction")) reasons.push({ k: "r.square" });
+    }
     const jitter = 0.85 + 0.3 * rand();
-    const score = fit * interest * novelty * direction * terrain * named * jitter;
+    const score = fit * interest * novelty * direction * terrain * named * notable * unexplored * jitter;
 
     ranked.push({
       place: p,
