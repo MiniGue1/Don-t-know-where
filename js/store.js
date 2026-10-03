@@ -4,6 +4,9 @@ const KEYS = {
   history: "dkw.history.v1",
   settings: "dkw.settings.v1",
   activeTrip: "dkw.activeTrip.v1",
+  routes: "dkw.routes.v1",
+  friends: "dkw.friends.v1",
+  identity: "dkw.identity.v1",
 };
 
 export function createStore(storage = globalThis.localStorage) {
@@ -43,8 +46,39 @@ export function createStore(storage = globalThis.localStorage) {
       return history;
     },
     clearHistory: () => write(KEYS.history, null),
+    replaceHistory: (history) => write(KEYS.history, history),
     getSettings: (defaults) => ({ ...defaults, ...read(KEYS.settings, {}) }),
     saveSettings: (s) => write(KEYS.settings, s),
+    getRoutes: () => read(KEYS.routes, []),
+    addRoute(route) {
+      const routes = read(KEYS.routes, []);
+      routes.unshift(route);
+      write(KEYS.routes, routes);
+      return routes;
+    },
+    deleteRoute(id) {
+      const routes = read(KEYS.routes, []).filter((r) => r.id !== id);
+      write(KEYS.routes, routes);
+      return routes;
+    },
+    getFriends: () => read(KEYS.friends, []),
+    /** Add or update a friend's card (keyed by their card id). */
+    upsertFriend(card) {
+      const friends = read(KEYS.friends, []).filter((f) => f.id !== card.id);
+      friends.push(card);
+      write(KEYS.friends, friends);
+      return friends;
+    },
+    removeFriend(id) {
+      const friends = read(KEYS.friends, []).filter((f) => f.id !== id);
+      write(KEYS.friends, friends);
+      return friends;
+    },
+    getIdentity: () => read(KEYS.identity, null),
+    saveIdentity: (i) => write(KEYS.identity, i),
+    clearAll() {
+      Object.values(KEYS).forEach((k) => write(k, null));
+    },
     getActiveTrip: () => read(KEYS.activeTrip, null),
     saveActiveTrip: (t) => write(KEYS.activeTrip, t),
   };

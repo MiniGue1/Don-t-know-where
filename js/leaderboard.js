@@ -1,0 +1,115 @@
+// Friends leaderboard without servers or accounts: everyone keeps their own stats,
+// and you swap a small "card" link with friends. Nothing is uploaded anywhere.
+
+import { visitedIds, streakDays } from "./stats.js";
+
+const ADJ = ["Wandering", "Curious", "Speedy", "Lost", "Sneaky", "Brave", "Sleepy", "Wild", "Jolly", "Restless", "Lucky", "Dizzy"];
+const ANIMAL = ["Otter", "Fox", "Moose", "Badger", "Goat", "Owl", "Panda", "Hedgehog", "Llama", "Raccoon", "Yak", "Penguin"];
+export const AVATARS = ["🦦", "🦊", "🫎", "🦡", "🐐", "🦉", "🐼", "🦔", "🦙", "🦝", "🐧", "🐢", "🐸", "🦄"];
+
+export function newIdentity(rand = Math.random) {
+  const pick = (a) => a[Math.floor(rand() * a.length)];
+  return {
+    id: Array.from({ length: 10 }, () => Math.floor(rand() * 36).toString(36)).join(""),
+    name: `${pick(ADJ)} ${pick(ANIMAL)}`,
+    avatar: pick(AVATARS),
+  };
+}
+
+const WEEK = 7 * 86400000;
+
+/** Start of the current week (Monday 00:00 local). */
+export function weekStart(now = Date.now()) {
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+}
+
+/** The numbers that go on your card. `kcal` maps a trip to calories. */
+export function myStats(history, kcal = () => 0, now = Date.now()) {
+  const ws = weekStart(now);
+  const week = history.filter((t) => t.startedAt >= ws);
+  const human = (t) => t.mode === "walk" || t.mode === "run" || t.mode === "bike";
+  return {
+    weekKm: +(week.filter(human).reduce((s, t) => s + (t.distance || 0), 0) / 1000).toFixed(1),
+    weekKcal: Math.round(week.reduce((s, t) => s + kcal(t), 0)),
+    places: visitedIds(history).size,
+    streak: streakDays(history, now),
+    totalKm: +(history.reduce((s, t) => s + (t.distance || 0), 0) / 1000).toFixed(1),
+    week: ws,
+  };
+}
+
+// --- share codes: base64url(JSON), compact keys ---------------------------------
+
+const b64url = {
+  enc: (s) => {
+    const bytes = new TextEncoder().encode(s);
+    let bin = "";
+    bytes.forEach((b) => (bin += String.fromCharCode(b)));
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  },
+  dec: (s) => {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/"));
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+  },
+};
+
+export function encodeCard(identity, stats, now = Date.now()) {
+  return b64url.enc(
+    JSON.stringify({
+      v: 1,
+      i: identity.id,
+      n: identity.name.slice(0, 32),
+      a: identity.avatar,
+      wk: stats.weekKm,
+      wc: stats.weekKcal,
+      p: stats.places,
+      s: stats.streak,
+      tk: stats.totalKm,
+      w: stats.week,
+      u: now,
+    })
+  );
+}
+
+export function decodeCard(code) {
+  const o = JSON.parse(b64url.dec(String(code).trim()));
+  if (o?.v !== 1 || typeof o.i !== "string" || typeof o.n !== "string") throw new Error("Not a valid card");
+  const n = (x) => (typeof x === "number" && isFinite(x) && x >= 0 ? x : 0);
+  return {
+    id: o.i.slice(0, 20),
+    name: o.n.slice(0, 32),
+    avatar: typeof o.a === "string" ? o.a.slice(0, 4) : "🙂",
+    stats: { weekKm: n(o.wk), weekKcal: n(o.wc), places: n(o.p), streak: n(o.s), totalKm: n(o.tk), week: n(o.w) },
+    updatedAt: n(o.u),
+  };
+}
+
+/** Pull a card code out of a pasted link or raw code. */
+export function extractCode(text) {
+  const m = String(text).match(/[#&?]friend=([A-Za-z0-9_-]+)/);
+  if (m) return m[1];
+  const t = String(text).trim();
+  return /^[A-Za-z0-9_-]{20,}$/.test(t) ? t : null;
+}
+
+export const BOARDS = {
+  weekKm: { id: "weekKm", label: "This week", unit: "km", weekly: true, hint: "km on foot or bike" },
+  places: { id: "places", label: "Explorer", unit: "places", hint: "different places discovered" },
+  streak: { id: "streak", label: "Streak", unit: "days", hint: "days in a row" },
+  weekKcal: { id: "weekKcal", label: "Calories", unit: "kcal", weekly: true, hint: "burned this week" },
+};
+
+/** Ranked rows for a board. Weekly boards zero out friends' cards from older weeks. */
+export function rankBoard(board, me, friends, now = Date.now()) {
+  const ws = weekStart(now);
+  const rows = [{ ...me, isMe: true }, ...friends].map((p) => {
+    const stale = BOARDS[board].weekly && (p.stats.week || 0) < ws;
+    return { id: p.id, name: p.name, avatar: p.avatar, isMe: !!p.isMe, value: stale ? 0 : p.stats[board] || 0, updatedAt: p.updatedAt };
+  });
+  rows.sort((a, b) => b.value - a.value || (a.isMe ? -1 : 1));
+  rows.forEach((r, i) => (r.rank = i > 0 && r.value === rows[i - 1].value ? rows[i - 1].rank : i + 1));
+  return rows;
+}

@@ -1,5 +1,5 @@
 // Offline support: the app shell is cached; map tiles and place lookups always go to the network.
-const CACHE = "dkw-v1";
+const CACHE = "dkw-v2";
 const SHELL = [
   "./",
   "index.html",
@@ -9,16 +9,31 @@ const SHELL = [
   "icons/icon-192.png",
   "vendor/leaflet/leaflet.js",
   "vendor/leaflet/leaflet.css",
-  "js/main.js",
+  "js/app.js",
+  "js/calories.js",
+  "js/charts.js",
+  "js/elevation.js",
   "js/geo.js",
+  "js/gpx.js",
+  "js/hrm.js",
+  "js/importers.js",
+  "js/leaderboard.js",
+  "js/main.js",
+  "js/maplinks.js",
   "js/modes.js",
   "js/places.js",
   "js/recommend.js",
+  "js/ride.js",
   "js/routing.js",
-  "js/maplinks.js",
   "js/stats.js",
-  "js/tracker.js",
   "js/store.js",
+  "js/tracker.js",
+  "js/ui/activity.js",
+  "js/ui/go.js",
+  "js/ui/me.js",
+  "js/ui/ranks.js",
+  "js/ui/recap.js",
+  "js/ui/trip.js",
 ];
 
 self.addEventListener("install", (e) => {

@@ -34,9 +34,23 @@ function angleDiff(a, b) {
  * @param {number} opts.minutes   total time the user has for the outing
  * @param {string[]} opts.interests categories the user picked (empty = anything)
  * @param {Array}  opts.history   past trips
+ * @param {string} opts.difficulty easy | moderate | hard (walk / run / bike)
+ * @param {Map}    opts.elevations place id -> elevation (m), optional
+ * @param {number} opts.startEle  elevation at `from`, optional
  * @param {Function} opts.rand    RNG, injectable for tests
  */
-export function rankPlaces({ places, from, mode, minutes, interests = [], history = [], rand = Math.random }) {
+export function rankPlaces({
+  places,
+  from,
+  mode,
+  minutes,
+  interests = [],
+  history = [],
+  difficulty = "moderate",
+  elevations = null,
+  startEle = null,
+  rand = Math.random,
+}) {
   const speed = personalSpeed(history, mode);
   const learned = interestProfile(history);
   const visited = visitedIds(history);
@@ -47,7 +61,8 @@ export function rankPlaces({ places, from, mode, minutes, interests = [], histor
     .filter((t) => t.track?.length)
     .map((t) => bearing({ lat: t.track[0][0], lng: t.track[0][1] }, t.place));
 
-  const target = minutes * 0.35; // ideal one-way minutes
+  // Ideal one-way minutes: harder = further out.
+  const target = minutes * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
   const maxOneWay = minutes * 0.6;
   const minDist = mode === "walk" ? 150 : mode === "bike" ? 400 : 1000;
   const picked = new Set(interests);
@@ -79,9 +94,22 @@ export function rankPlaces({ places, from, mode, minutes, interests = [], histor
       if (closest > 90) reasons.push("a direction you haven't explored lately");
     }
 
+    // Difficulty: prefer flat for easy, climbs for hard (when elevation is known).
+    let terrain = 1;
+    const ele = elevations?.get(p.id);
+    if (ele != null && startEle != null) {
+      const climb = ele - startEle;
+      const grade = (climb / (d * DETOUR_FACTOR)) * 100;
+      if (difficulty === "easy") terrain = grade > 3 ? 0.5 : 1;
+      else if (difficulty === "hard") {
+        terrain = 0.6 + Math.min(1.2, Math.max(0, grade) / 5);
+        if (climb > 40) reasons.push(`+${Math.round(climb)} m climb`);
+      }
+    } else if (difficulty === "hard" && p.category === "views") terrain = 1.3;
+
     const named = p.named === false ? 0.75 : 1;
     const jitter = 0.85 + 0.3 * rand();
-    const score = fit * interest * novelty * direction * named * jitter;
+    const score = fit * interest * novelty * direction * terrain * named * jitter;
 
     ranked.push({
       place: p,

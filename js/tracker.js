@@ -2,6 +2,7 @@
 // Pure logic (no browser APIs) so it can be unit-tested.
 
 import { distance } from "./geo.js";
+import { elevationGain } from "./elevation.js";
 import { MODES } from "./modes.js";
 
 const MAX_ACCURACY_M = 60; // ignore fixes worse than this
@@ -20,6 +21,7 @@ export class TripTracker {
     this.arrivedAt = null;
     this.dwellSec = 0;
     this.maxSpeedKmh = 0;
+    this.hr = []; // [[t, bpm], ...] from a connected watch / strap
     this._lastNear = null; // timestamp of last fix that was at the place
   }
 
@@ -40,6 +42,7 @@ export class TripTracker {
   addPoint(fix) {
     if (fix.accuracy != null && fix.accuracy > MAX_ACCURACY_M) return null;
     const p = { lat: fix.lat, lng: fix.lng, t: fix.t };
+    if (fix.ele != null && isFinite(fix.ele)) p.ele = fix.ele;
     const prev = this.track[this.track.length - 1];
     if (prev) {
       if (p.t <= prev.t) return null;
@@ -70,6 +73,13 @@ export class TripTracker {
     return event;
   }
 
+  /** Heart-rate sample from a connected sensor. Thinned to one per 5 s. */
+  addHeartRate(bpm, t = Date.now()) {
+    const last = this.hr[this.hr.length - 1];
+    if (last && t - last[0] < 5000) return;
+    this.hr.push([t, bpm]);
+  }
+
   /** Manual "I'm here" — for when GPS missed the arrival (e.g. app was in the background). */
   markArrived(t = Date.now()) {
     if (this.arrived) return;
@@ -94,6 +104,8 @@ export class TripTracker {
     const travelSec = this.arrived ? (this.arrivedAt - this.startedAt) / 1000 : null;
     const travelled = this.arrived ? this.distanceToArrival : this.distance;
     const movingSec = travelSec ?? (endedAt - this.startedAt) / 1000;
+    const bpms = this.hr.map((h) => h[1]);
+    const eles = this.track.map((q) => q.ele).filter((e) => e != null);
     return {
       id: this.id,
       mode: this.mode,
@@ -114,7 +126,13 @@ export class TripTracker {
       dwellSec: Math.round(this.dwellSec),
       avgSpeedKmh: movingSec > 0 ? +((travelled / movingSec) * 3.6).toFixed(2) : 0,
       maxSpeedKmh: +this.maxSpeedKmh.toFixed(1),
-      track: this.track.map((q) => [+q.lat.toFixed(6), +q.lng.toFixed(6), q.t]),
+      elevationGain: eles.length > 1 ? elevationGain(eles) : null,
+      avgHr: bpms.length ? Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length) : null,
+      maxHr: bpms.length ? Math.max(...bpms) : null,
+      hr: this.hr,
+      track: this.track.map((q) =>
+        q.ele != null ? [+q.lat.toFixed(6), +q.lng.toFixed(6), q.t, Math.round(q.ele)] : [+q.lat.toFixed(6), +q.lng.toFixed(6), q.t]
+      ),
     };
   }
 
@@ -128,4 +146,35 @@ export class TripTracker {
     Object.assign(t, obj);
     return t;
   }
+}
+
+/**
+ * Build a history record from an imported activity (Garmin / Strava / Google Timeline).
+ * The last point is treated as the destination.
+ */
+export function recordFromPoints({ name, mode, points, id }) {
+  const pts = points.filter((p) => p.t != null).sort((a, b) => a.t - b.t);
+  if (pts.length < 2) throw new Error("Activity needs at least two timestamped points");
+  const end = pts[pts.length - 1];
+  const place = { id: `import:${end.lat.toFixed(4)},${end.lng.toFixed(4)}`, name, kind: "imported activity", category: "quirky", lat: end.lat, lng: end.lng };
+  const tr = new TripTracker({ mode, place, startedAt: pts[0].t, id: id || `import-${pts[0].t}` });
+  // Imported data is already clean; don't let GPS filters drop it.
+  for (const p of pts) {
+    const prev = tr.track[tr.track.length - 1];
+    if (prev && p.t <= prev.t) continue;
+    if (prev) {
+      const step = distance(prev, p);
+      tr.distance += step;
+      const kmh = (step / ((p.t - prev.t) / 1000)) * 3.6;
+      if (step > 15 && kmh < 300) tr.maxSpeedKmh = Math.max(tr.maxSpeedKmh, kmh);
+    }
+    const q = { lat: p.lat, lng: p.lng, t: p.t };
+    if (p.ele != null) q.ele = p.ele;
+    tr.track.push(q);
+    if (p.hr) tr.hr.push([p.t, p.hr]);
+  }
+  tr.markArrived(end.t);
+  const rec = tr.finish(end.t);
+  rec.imported = true;
+  return rec;
 }
