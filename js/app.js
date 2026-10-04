@@ -2,7 +2,7 @@
 
 import { createStore } from "./store.js";
 import { defaultProvider } from "./maplinks.js";
-import { CATEGORIES } from "./places.js";
+import { CATEGORIES, KINDS } from "./places.js";
 import { tripCalories } from "./calories.js";
 import { segmentSpeeds, speedRange, colouredRuns } from "./charts.js";
 import { icon } from "./icons.js";
@@ -147,10 +147,11 @@ export function drawStart() {
   }).addTo(map);
 }
 
-export const pinIcon = (category, selected = false, mystery = false) =>
+/** Map pin; `kind` (waterfall, tower, …) picks a more specific icon than the category. */
+export const pinIcon = (category, selected = false, mystery = false, kind = null) =>
   L.divIcon({
     className: "",
-    html: `<div class="pin${selected ? " selected" : ""}"><span>${icon(mystery ? "map-pin-question" : CATEGORIES[category]?.icon || "sparkles")}</span></div>`,
+    html: `<div class="pin${selected ? " selected" : ""}"><span>${icon(mystery ? "map-pin-question" : KINDS[kind]?.icon || CATEGORIES[category]?.icon || "sparkles")}</span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 34],
   });

@@ -449,3 +449,6 @@ body {
 .tabbar button span { font-size: inherit; }
 .extract-slot:empty { display: none; }
 .extract-slot .extract { margin: 8px 0 0; }
+.card .via:empty { display: none; }
+.card .via { font-size: 0.85rem; color: var(--text); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
+.card .via .i { width: 14px; height: 14px; color: var(--accent); }

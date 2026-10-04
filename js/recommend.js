@@ -8,6 +8,9 @@ import { isNewSquare } from "./explore.js";
 // Real routes are longer than the straight line.
 export const DETOUR_FACTOR = 1.35;
 
+/** Places below this "wow" are only suggested when nothing better fits. */
+export const LOW_WOW = 0.4;
+
 /** Estimated one-way travel time in minutes for a straight-line distance. */
 export function estimateMinutes(straightMetres, speedKmh) {
   return ((straightMetres * DETOUR_FACTOR) / 1000 / speedKmh) * 60;
@@ -125,7 +128,9 @@ export function rankPlaces({
       if (!reasons.some((r) => r.k === "r.direction")) reasons.push({ k: "r.square" });
     }
     const jitter = 0.85 + 0.3 * rand();
-    const score = fit * interest * novelty * direction * terrain * named * notable * unexplored * jitter;
+    // How worth the trip it is matters most: a waterfall clearly beats a park.
+    const wow = Math.pow(p.wow ?? 0.5, 2);
+    const score = fit * interest * novelty * direction * terrain * named * notable * unexplored * wow * jitter;
 
     ranked.push({
       place: p,
@@ -137,6 +142,12 @@ export function rankPlaces({
     });
   }
   ranked.sort((a, b) => b.score - a.score);
+  // Dull places (parks, picnic spots…) only when nothing better is in range.
+  if (ranked.some((r) => (r.place.wow ?? 0.5) >= LOW_WOW)) {
+    const good = ranked.filter((r) => (r.place.wow ?? 0.5) >= LOW_WOW);
+    ranked.length = 0;
+    ranked.push(...good);
+  }
   return { speedKmh: speed, ranked };
 }
 

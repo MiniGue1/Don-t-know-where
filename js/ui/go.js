@@ -5,7 +5,7 @@ import { icon } from "../icons.js";
 import { t, getLang } from "../i18n.js";
 import { recordChoice, splitModes, usualChoice, favourite } from "../usage.js";
 import { MODES, MODE_IDS, LENGTHS, DIFFICULTIES, RIDE_STYLES, thirdStep } from "../modes.js";
-import { CATEGORIES, fetchPlaces, mysterySpot } from "../places.js";
+import { CATEGORIES, KINDS, fetchPlaces, mysterySpot } from "../places.js";
 import { rankPlaces, surprisePick, searchRadius, estimateMinutes, DETOUR_FACTOR } from "../recommend.js";
 import { personalSpeed } from "../stats.js";
 import { fetchRoute, fetchRouteVia } from "../routing.js";
@@ -321,6 +321,7 @@ async function planLoop(r) {
     r.route = best.route;
     const wp = best.route.waypoints?.[2];
     r.loopVia = wp ? { lat: wp.lat, lng: wp.lng } : best.v.via;
+    r.viaPlace = best.v.viaPlace || null;
   } else if (r.oneWay) {
     const back = r.oneWay.points.slice().reverse();
     r.route = { points: [...r.oneWay.points, ...back], distance: r.oneWay.distance * 2, duration: r.oneWay.duration * 2 };
@@ -482,10 +483,19 @@ async function pickRide(from, ranked, style, minutes, speed, loop) {
   return routed.filter(Boolean).sort((a, b) => b.score - a.score);
 }
 
-const reasonText = (r) => (r.reasons || []).map((x) => (typeof x === "string" ? x : t(x.k, x.p))).join(" · ");
+const reasonText = (r) =>
+  (r.reasons || [])
+    .slice(0, 2)
+    .map((x) => (typeof x === "string" ? x : t(x.k, x.p)))
+    .join(" · ");
 
 /** Distance and time shown on a card: one way, or the whole loop. */
 function cardMeta(r) {
+  const kind = KINDS[r.place.kind] ? `${t(`kind.${r.place.kind}`)} · ` : "";
+  return kind + distTime(r);
+}
+
+function distTime(r) {
   if (r.route) return `${formatDistance(r.route.distance)} · ${fmtMinutes(r.route.duration / 60)}${r.loop ? ` · ${t(r.outBack ? "go.outBack" : "go.loopApprox")}` : ""}`;
   if (r.loop) {
     const stops = loopStops(startPoint(), r.place);
@@ -496,7 +506,7 @@ function cardMeta(r) {
 
 function cardHtml(r, i) {
   const p = r.place;
-  const ic = p.mystery ? "map-pin-question" : CATEGORIES[p.category]?.icon || "sparkles";
+  const ic = p.mystery ? "map-pin-question" : KINDS[p.kind]?.icon || CATEGORIES[p.category]?.icon || "sparkles";
   const name = p.mystery && !p.via ? t("mystery.name") : p.name;
   return `<div class="card${i === 0 ? " hero" : ""}" data-i="${i}">
     <div class="photo-slot"></div>
@@ -505,6 +515,7 @@ function cardHtml(r, i) {
       <div class="grow">
         <h3>${esc(name)}</h3>
         <div class="meta">${esc(cardMeta(r))}</div>
+        <div class="via">${r.viaPlace ? `${icon("arrow-narrow-right")} ${esc(r.viaPlace.name)}` : ""}</div>
         ${reasonText(r) ? `<div class="why">${esc(reasonText(r))}</div>` : ""}
       </div>
     </div>
@@ -520,7 +531,7 @@ function renderResults() {
   $("#more-btn").hidden = showMore || results.length < 2;
   $("#result-list").innerHTML = list.map(cardHtml).join("");
   markers = list.map((r, i) =>
-    L.marker([r.place.lat, r.place.lng], { icon: pinIcon(r.place.category, false, r.place.mystery) })
+    L.marker([r.place.lat, r.place.lng], { icon: pinIcon(r.place.category, false, r.place.mystery, r.place.kind) })
       .on("click", () => select(i, true))
       .addTo(layers.view)
   );
@@ -564,7 +575,7 @@ async function select(i, scroll) {
     if (!on && act) act.remove();
   });
   markers.forEach((m, j) => {
-    m.setIcon(pinIcon(results[j].place.category, j === i, results[j].place.mystery));
+    m.setIcon(pinIcon(results[j].place.category, j === i, results[j].place.mystery, results[j].place.kind));
     m.setLatLng([results[j].place.lat, results[j].place.lng]);
     m.setZIndexOffset(j === i ? 500 : 0);
   });
@@ -580,8 +591,11 @@ async function select(i, scroll) {
       routeLine = L.polyline([[from.lat, from.lng], [r.place.lat, r.place.lng]], { color: "#0f766e", weight: 3, dashArray: "6 8" }).addTo(layers.view);
       fitTo([from, r.place]);
     }
-    const meta = document.querySelector(`#result-list .card[data-i="${i}"] .meta`);
-    if (meta) meta.textContent = cardMeta(r);
+    const card = document.querySelector(`#result-list .card[data-i="${i}"]`);
+    if (card) {
+      card.querySelector(".meta").textContent = cardMeta(r);
+      card.querySelector(".via").innerHTML = r.viaPlace ? `${icon("arrow-narrow-right")} ${esc(r.viaPlace.name)}` : "";
+    }
   };
   draw();
   if (r.loop && !r.loopPlanned && ctx) {

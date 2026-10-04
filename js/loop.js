@@ -82,7 +82,9 @@ export function loopVariants(start, place, others = []) {
       return { q, dq, ang };
     })
     .filter((x) => x.ang >= 35 && x.ang <= 120 && x.dq > d * 0.4 && x.dq < d * 1.1 && distance(place, x.q) < d * 1.2)
-    .sort((a, b) => Math.abs(a.ang - 70) - Math.abs(b.ang - 70))[0];
+    // Best second stop: off to the side (~70°) and as interesting as possible.
+    .map((x) => ({ ...x, score: (x.q.wow ?? 0.5) * (1 - Math.abs(x.ang - 70) / 100) }))
+    .sort((a, b) => b.score - a.score)[0];
   if (second) out.push({ stops: [start, place, second.q, start], via: second.q, viaPlace: second.q });
   for (const side of [1, -1])
     for (const spread of [0.3, 0.5]) {

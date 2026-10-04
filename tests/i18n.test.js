@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { DICTS, t, setLang, detectLang } from "../js/i18n.js";
 import { MODE_IDS, LENGTHS, DIFFICULTIES, RIDE_STYLES } from "../js/modes.js";
-import { CATEGORY_IDS } from "../js/places.js";
+import { CATEGORY_IDS, KINDS } from "../js/places.js";
 import { BOARDS } from "../js/leaderboard.js";
 
 const root = new URL("../", import.meta.url);
@@ -34,6 +34,7 @@ test("every key used in code and HTML exists", () => {
   Object.keys(DIFFICULTIES).forEach((id) => used.add(`diff.${id}`) && used.add(`diff.${id}.hint`));
   Object.keys(RIDE_STYLES).forEach((id) => used.add(`style.${id}`) && used.add(`style.${id}.hint`));
   CATEGORY_IDS.forEach((id) => used.add(`cat.${id}`));
+  Object.keys(KINDS).forEach((id) => used.add(`kind.${id}`));
   Object.keys(BOARDS).forEach((id) => used.add(`board.${id}`) && used.add(`unit.${id}`));
   [0, 1, 2, 3].forEach((i) => used.add(`dir.${i}`));
   const missing = [...used].filter((k) => !(k in DICTS.en));

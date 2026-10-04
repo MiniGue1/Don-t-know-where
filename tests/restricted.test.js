@@ -116,3 +116,11 @@ test("loop variants prefer a real second place off to the side", () => {
   assert.equal(v.length, 5);
   assert.equal(loopVariants(s, place, [behind]).length, 4);
 });
+
+test("loop's second stop prefers the more interesting place", () => {
+  const s = { lat: 49.6, lng: 17.3 };
+  const place = { id: "a", wow: 1, ...destination(s, 0, 1500) };
+  const park = { id: "park", wow: 0.3, ...destination(s, 70, 1200) };
+  const spring = { id: "spring", wow: 0.55, ...destination(s, 60, 1100) };
+  assert.equal(loopVariants(s, place, [park, spring])[0].viaPlace.id, "spring");
+});
