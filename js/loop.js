@@ -67,7 +67,7 @@ export function spikeRatio(points, { tolerance = 25, ends = 250 } = {}) {
 
 /**
  * Candidate loops start → place → … → start. Uses a second real place on the way
- * back when one sits off to the side, plus return points left/right at two spreads.
+ * back when one sits off to the side, plus a return point to the left and to the right.
  */
 export function loopVariants(start, place, others = []) {
   const d = distance(start, place);
@@ -86,10 +86,9 @@ export function loopVariants(start, place, others = []) {
     .map((x) => ({ ...x, score: (x.q.wow ?? 0.5) * (1 - Math.abs(x.ang - 70) / 100) }))
     .sort((a, b) => b.score - a.score)[0];
   if (second) out.push({ stops: [start, place, second.q, start], via: second.q, viaPlace: second.q });
-  for (const side of [1, -1])
-    for (const spread of [0.3, 0.5]) {
-      const via = returnVia(start, place, side, spread);
-      out.push({ stops: [start, place, via, start], via });
-    }
+  for (const side of [1, -1]) {
+    const via = returnVia(start, place, side, 0.4);
+    out.push({ stops: [start, place, via, start], via });
+  }
   return out;
 }

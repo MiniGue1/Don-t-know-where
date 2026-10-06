@@ -113,8 +113,8 @@ test("loop variants prefer a real second place off to the side", () => {
   const behind = { id: "c", ...destination(s, 180, 1200) };
   const v = loopVariants(s, place, [place, side, behind]);
   assert.equal(v[0].viaPlace.id, "b");
-  assert.equal(v.length, 5);
-  assert.equal(loopVariants(s, place, [behind]).length, 4);
+  assert.equal(v.length, 3);
+  assert.equal(loopVariants(s, place, [behind]).length, 2);
 });
 
 test("loop's second stop prefers the more interesting place", () => {

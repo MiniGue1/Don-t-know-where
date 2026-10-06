@@ -452,3 +452,9 @@ body {
 .card .via:empty { display: none; }
 .card .via { font-size: 0.85rem; color: var(--text); margin-top: 2px; display: flex; align-items: center; gap: 4px; }
 .card .via .i { width: 14px; height: 14px; color: var(--accent); }
+.card .fun:empty { display: none; }
+.card .fun { font-size: 0.85rem; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+.card .fun b { color: var(--accent); }
+.card .fun .warn { color: #b45309; }
+.empty-card { text-align: center; cursor: default; }
+.empty-card p { margin: 6px 0 12px; font-weight: 600; }

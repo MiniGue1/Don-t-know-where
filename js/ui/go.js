@@ -5,7 +5,8 @@ import { icon } from "../icons.js";
 import { t, getLang } from "../i18n.js";
 import { recordChoice, splitModes, usualChoice, favourite } from "../usage.js";
 import { MODES, MODE_IDS, LENGTHS, DIFFICULTIES, RIDE_STYLES, thirdStep } from "../modes.js";
-import { CATEGORIES, KINDS, fetchPlaces, mysterySpot } from "../places.js";
+import { CATEGORIES, KINDS, fetchPlaces } from "../places.js";
+import { scoreRoute, fetchCorridor } from "../scenic.js";
 import { rankPlaces, surprisePick, searchRadius, estimateMinutes, DETOUR_FACTOR } from "../recommend.js";
 import { personalSpeed } from "../stats.js";
 import { fetchRoute, fetchRouteVia } from "../routing.js";
@@ -34,7 +35,8 @@ function step(name) {
   if (name !== "loading") clearTimeout(slowTimer);
   document.querySelectorAll("#view-go .step").forEach((s) => (s.hidden = s.dataset.step !== name));
   $("#view-go").scrollTop = 0;
-  if (name !== "results") {
+  // Leaving the results (but not just showing a spinner while scoring them) forgets them.
+  if (name !== "results" && name !== "loading") {
     layers.view.clearLayers();
     results = [];
   }
@@ -291,14 +293,8 @@ async function validate(r) {
 
 const joinRoutes = (a, b) => ({ points: [...a.points, ...b.points], distance: a.distance + b.distance, duration: a.duration + b.duration, waypoints: [...(a.waypoints || []), ...(b.waypoints || []).slice(1)] });
 
-/**
- * Pick the best loop: several variants (a second real place, or return points left/right),
- * scored by how much they retrace themselves and how well they fit the time. If every
- * variant is spiky, fall back to an honest out-and-back on the same path.
- */
-async function planLoop(r) {
-  if (r.loopPlanned) return r;
-  r.loopPlanned = true;
+/** Routes for a place's loop variants (second place, return point left/right). */
+async function loopCandidates(r) {
   const variants = loopVariants(ctx.from, r.place, ctx.others);
   const routes = await Promise.all(
     variants.map(async (v) => {
@@ -309,29 +305,91 @@ async function planLoop(r) {
       return fetchRouteVia(ctx.profile, v.stops);
     })
   );
-  let best = null;
-  routes.forEach((route, i) => {
-    if (!route || routeHitsRestricted(route.points, ctx.polys)) return;
-    const spike = spikeRatio(route.points);
-    const fit = Math.abs(route.duration / 60 - ctx.minutes) / ctx.minutes;
-    const score = spike * 2 + fit;
-    if (!best || score < best.score) best = { score, spike, route, v: variants[i] };
+  return routes
+    .map((route, i) => (route && !routeHitsRestricted(route.points, ctx.polys) ? { route, v: variants[i], spike: spikeRatio(route.points) } : null))
+    .filter(Boolean);
+}
+
+/** How fun a route is. `covered`: the route was part of the corridor request, so nature/road data applies. */
+function funOf(route, r, covered) {
+  return scoreRoute(route, {
+    corridor: covered ? ctx.corridor : null,
+    places: ctx.allPlaces,
+    dest: r.place,
+    countBusy: !["car", "moto"].includes(ctx.mode),
   });
+}
+
+/**
+ * Pick the best loop variant: little retracing, fits the time, most fun. If every
+ * variant is spiky, fall back to an honest out-and-back on the same path.
+ */
+function chooseLoop(r, cands, covered) {
+  r.loopPlanned = true;
+  let best = null;
+  for (const c of cands) {
+    c.scenic = funOf(c.route, r, covered);
+    const fit = Math.abs(c.route.duration / 60 - ctx.minutes) / ctx.minutes;
+    c.score = c.spike * 2 + fit - c.scenic.fun / 10;
+    if (!best || c.score < best.score) best = c;
+  }
   if (best && best.spike <= 0.35) {
     r.route = best.route;
     const wp = best.route.waypoints?.[2];
     r.loopVia = wp ? { lat: wp.lat, lng: wp.lng } : best.v.via;
     r.viaPlace = best.v.viaPlace || null;
+    r.scenic = best.scenic;
   } else if (r.oneWay) {
     const back = r.oneWay.points.slice().reverse();
     r.route = { points: [...r.oneWay.points, ...back], distance: r.oneWay.distance * 2, duration: r.oneWay.duration * 2 };
     r.loopVia = null;
     r.outBack = true;
+    r.scenic = funOf(r.oneWay, r, covered);
   } else if (best) {
     r.route = best.route;
     r.loopVia = best.v.via;
+    r.scenic = best.scenic;
   }
+}
+
+/** Loops for cards opened later (not in the first scoring round). */
+async function planLoop(r) {
+  if (r.loopPlanned) return r;
+  chooseLoop(r, await loopCandidates(r), false);
   return r;
+}
+
+/**
+ * Judge what each route passes: one corridor request covers the top candidates
+ * (and the loop variants of the top two), then the list is re-ordered by
+ * place score × fun.
+ */
+async function scoreResults(list, reorder) {
+  const top = list.slice(0, 4);
+  const loopCands = new Map();
+  await Promise.all(
+    top
+      .slice(0, 2)
+      .filter((r) => r.loop && !r.loopPlanned)
+      .map(async (r) => loopCands.set(r, await loopCandidates(r)))
+  );
+  const routes = [];
+  for (const r of top) {
+    if (loopCands.has(r)) routes.push(...loopCands.get(r).map((c) => c.route));
+    else if (r.route) routes.push(r.route);
+    else if (r.oneWay) routes.push(r.oneWay);
+  }
+  loading("load.scoring");
+  ctx.corridor = await fetchCorridor(routes);
+  for (const r of list) {
+    const covered = top.includes(r);
+    if (loopCands.has(r)) chooseLoop(r, loopCands.get(r), true);
+    else if (r.route) r.scenic = funOf(r.route, r, covered);
+  }
+  if (reorder) {
+    const value = (r) => (r.score || 0.01) * (0.4 + (r.scenic?.fun ?? 5) / 10);
+    list.sort((a, b) => value(b) - value(a));
+  }
 }
 
 /** Validate candidates in order until `want` good ones are found (checks a few at a time). */
@@ -344,17 +402,10 @@ async function firstValid(cands, want) {
   return out.slice(0, want);
 }
 
-/** Mystery spot, only when nothing real fits: must be reachable and outside restricted land. */
-async function mysteryEntry(dist) {
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const p = { ...mysterySpot(ctx.from, dist), name: t("mystery.name") };
-    if (isRestricted(p, ctx.polys)) continue;
-    const entry = { place: p, score: 0, distance: distance(ctx.from, p), estMinutes: Math.round((dist * DETOUR_FACTOR) / 1000 / (personalSpeed(store.getHistory(), ctx.mode) / 60)), isNew: true, loop: isLoop(), reasons: [{ k: "mystery.reason" }] };
-    const ok = await validate(entry);
-    if (ok) return ok;
-  }
-  return null;
-}
+const pickOrder = (list) => {
+  const pick = surprisePick(list);
+  return pick ? [pick, ...list.filter((r) => r !== pick)] : [];
+};
 
 async function suggest() {
   const from = startPoint() && { lat: startPoint().lat, lng: startPoint().lng };
@@ -375,18 +426,23 @@ async function suggest() {
   recordChoice(settings.usage, { mode, length: choice.length, option: kind === "style" ? style : kind ? difficulty : null });
   saveSettings();
 
+  const radius = searchRadius(minutes * (loop ? 0.75 : 1), speed);
+  const load = async (r) => {
+    const data = await fetchPlaces(from, r);
+    const polys = prepare(data.restricted);
+    return { polys, places: data.places.filter((p) => !isRestricted(p, polys)) };
+  };
+
   loading("load.looking");
   let places = [];
   let polys = [];
   let offline = false;
   try {
-    const data = await fetchPlaces(from, searchRadius(minutes * (loop ? 0.75 : 1), speed));
-    polys = prepare(data.restricted);
-    places = data.places.filter((p) => !isRestricted(p, polys));
+    ({ places, polys } = await load(radius));
   } catch {
     offline = true;
   }
-  ctx = { from, mode, profile: MODES[mode].routingProfile, minutes, polys, others: [] };
+  ctx = { from, mode, profile: MODES[mode].routingProfile, minutes, polys, others: [], allPlaces: places, corridor: null };
 
   // Difficulty needs to know which places are uphill.
   let elevations = null;
@@ -407,43 +463,62 @@ async function suggest() {
   }
 
   const squares = visitedSquares(history);
-  ({ ranked } = rankPlaces({ places, from, mode, minutes, interests: settings.interests, history, difficulty, elevations, startEle, loop, squares }));
-  for (const r of ranked) r.loop = loop;
+  const rank = (ps, mins, allowLow = false) => {
+    const out = rankPlaces({ places: ps, from, mode, minutes: mins, interests: settings.interests, history, difficulty, elevations, startEle, loop, squares, allowLow }).ranked;
+    for (const r of out) r.loop = loop;
+    return out;
+  };
+  ranked = rank(places, minutes);
   ctx.others = ranked.slice(0, 30).map((r) => r.place);
 
   loading("load.checking");
   results = [];
-  if (style === "twisty" || style === "straight") {
+  const ride = style === "twisty" || style === "straight";
+  if (ride) {
     loading(style === "twisty" ? "load.curvy" : "load.open");
     results = await firstValid(await pickRide(from, ranked, style, minutes * (loop ? 0.75 : 1), speed, loop), 5);
     if (!results.length) toast(t("toast.routingOff"));
   }
-  if (!results.length) {
-    const pick = surprisePick(ranked);
-    const order = pick ? [pick, ...ranked.filter((r) => r !== pick)] : [];
-    results = await firstValid(order.slice(0, 9), 5);
+  if (!results.length) results = await firstValid(pickOrder(ranked).slice(0, 9), 5);
+  // Nothing interesting fits: allow plainer places, then look a bit further.
+  if (!results.length && places.length) {
+    ranked = rank(places, minutes, true);
+    results = await firstValid(pickOrder(ranked).slice(0, 9), 5);
   }
-  if (!results.length) {
-    // Nothing real fits: a random but reachable spot.
-    const target = minutes * (loop ? 0.75 : 1) * (difficulty === "easy" ? 0.25 : difficulty === "hard" ? 0.45 : 0.35);
-    const m = await mysteryEntry((((speed * target) / 60) * 1000) / DETOUR_FACTOR);
-    if (m) results = [m];
+  if (!results.length && !offline) {
+    loading("load.wider");
+    try {
+      const wider = await load(radius * 1.6);
+      ctx.allPlaces = wider.places;
+      ctx.polys = wider.polys;
+      ranked = rank(wider.places, minutes * 1.3, true);
+      ctx.others = ranked.slice(0, 30).map((r) => r.place);
+      results = await firstValid(pickOrder(ranked).slice(0, 9), 5);
+    } catch {}
   }
-  if (results[0]?.loop) await planLoop(results[0]);
+  if (results.length) await scoreResults(results, !ride);
 
   clearTimeout(slowTimer);
   if (offline) toast(t("toast.offline"));
-  else if (!ranked.length && style === "place") toast(t("toast.nothing"));
-  if (!results.length) {
-    step("option");
-    if (!thirdStep(mode)) step("length");
-    return;
-  }
   showMore = false;
   selected = 0;
   step("results");
+  if (!results.length) return renderEmpty();
   renderResults();
   select(0);
+}
+
+/** Honest empty state instead of a random point. */
+function renderEmpty() {
+  layers.view.clearLayers();
+  markers = [];
+  $("#more-btn").hidden = true;
+  const order = ["short", "medium", "long"];
+  const next = order[order.indexOf(choice.length) + 1];
+  $("#result-list").innerHTML = `<div class="card empty-card">
+    <p>${esc(t("go.nothingHere"))}</p>
+    ${next ? `<button type="button" class="btn primary full" data-longer="${next}">${esc(t("go.tryLonger"))}</button>` : `<p class="hint">${esc(t("go.tryOtherMode"))}</p>`}
+  </div>`;
 }
 
 /** Motorbike twisties / straights: route several candidates and keep the best roads. */
@@ -491,7 +566,8 @@ const reasonText = (r) =>
 
 /** Distance and time shown on a card: one way, or the whole loop. */
 function cardMeta(r) {
-  const kind = KINDS[r.place.kind] ? `${t(`kind.${r.place.kind}`)} · ` : "";
+  const label = KINDS[r.place.kind] ? t(`kind.${r.place.kind}`) : "";
+  const kind = label && label !== r.place.name ? `${label} · ` : "";
   return kind + distTime(r);
 }
 
@@ -502,6 +578,17 @@ function distTime(r) {
     return `${formatDistance(loopStraightLength(stops) * DETOUR_FACTOR)} · ${fmtMinutes(r.estMinutes * 2.2)} · ${t("go.loopApprox")}`;
   }
   return `${formatDistance(r.distance)} · ${fmtMinutes(r.estMinutes)}`;
+}
+
+/** "Zábavnost 8/10 · 70 % přírodou · cestou: Studánka, Vyhlídka" */
+function funLine(r) {
+  const s = r.scenic;
+  if (!s) return "";
+  const parts = [`<b>${esc(t("fun.score", { n: Math.round(s.fun) }))}</b>`];
+  if (s.green != null && s.green >= 0.15) parts.push(esc(t("fun.green", { pct: Math.round(s.green * 100) })));
+  if (s.sights.length) parts.push(esc(t("fun.along", { list: s.sights.slice(0, 2).map((p) => p.name).join(", ") })));
+  if (s.busy > 0.2) parts.push(`<span class="warn">${esc(t("fun.road"))}</span>`);
+  return parts.join(" · ");
 }
 
 function cardHtml(r, i) {
@@ -516,7 +603,8 @@ function cardHtml(r, i) {
         <h3>${esc(name)}</h3>
         <div class="meta">${esc(cardMeta(r))}</div>
         <div class="via">${r.viaPlace ? `${icon("arrow-narrow-right")} ${esc(r.viaPlace.name)}` : ""}</div>
-        ${reasonText(r) ? `<div class="why">${esc(reasonText(r))}</div>` : ""}
+        <div class="fun">${funLine(r)}</div>
+        ${!r.scenic && reasonText(r) ? `<div class="why">${esc(reasonText(r))}</div>` : ""}
       </div>
     </div>
     <div class="extract-slot"></div>
@@ -595,6 +683,8 @@ async function select(i, scroll) {
     if (card) {
       card.querySelector(".meta").textContent = cardMeta(r);
       card.querySelector(".via").innerHTML = r.viaPlace ? `${icon("arrow-narrow-right")} ${esc(r.viaPlace.name)}` : "";
+      card.querySelector(".fun").innerHTML = funLine(r);
+      if (r.scenic) card.querySelector(".why")?.remove();
     }
   };
   draw();
@@ -606,6 +696,12 @@ async function select(i, scroll) {
 
 $("#result-list").addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
+  const longer = e.target.closest("[data-longer]");
+  if (longer) {
+    choice.length = longer.dataset.longer;
+    saveSettings();
+    return suggest();
+  }
   const go = e.target.closest("[data-go]");
   if (go) {
     const r = results[+go.dataset.go];
@@ -634,9 +730,11 @@ $("#reroll-btn").addEventListener("click", async () => {
   const pick = surprisePick(pool);
   loading("load.checking");
   const next = await firstValid([pick, ...pool.filter((r) => r !== pick)].slice(0, 9), 5);
+  if (next.length) {
+    results = next;
+    await scoreResults(results, false);
+  }
   clearTimeout(slowTimer);
-  if (next.length) results = next;
-  if (results[0]?.loop) await planLoop(results[0]);
   showMore = false;
   selected = 0;
   step("results");

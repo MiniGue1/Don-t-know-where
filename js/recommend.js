@@ -43,6 +43,7 @@ function angleDiff(a, b) {
  * @param {number} opts.startEle  elevation at `from`, optional
  * @param {boolean} opts.loop     going there and back: the whole loop must fit the budget
  * @param {Set}    opts.squares   visited exploration squares (bonus for unexplored ones)
+ * @param {boolean} opts.allowLow keep low-"wow" places (parks…) even when better ones exist
  * @param {Function} opts.rand    RNG, injectable for tests
  *
  * Each result's `reasons` are i18n keys: [{ k: "r.new" }, { k: "r.climb", p: { m: 60 } }].
@@ -59,6 +60,7 @@ export function rankPlaces({
   startEle = null,
   loop = false,
   squares = null,
+  allowLow = false,
   rand = Math.random,
 }) {
   const speed = personalSpeed(history, mode);
@@ -143,7 +145,7 @@ export function rankPlaces({
   }
   ranked.sort((a, b) => b.score - a.score);
   // Dull places (parks, picnic spots…) only when nothing better is in range.
-  if (ranked.some((r) => (r.place.wow ?? 0.5) >= LOW_WOW)) {
+  if (!allowLow && ranked.some((r) => (r.place.wow ?? 0.5) >= LOW_WOW)) {
     const good = ranked.filter((r) => (r.place.wow ?? 0.5) >= LOW_WOW);
     ranked.length = 0;
     ranked.push(...good);

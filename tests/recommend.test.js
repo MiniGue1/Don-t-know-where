@@ -79,3 +79,9 @@ test("records and streak", () => {
   assert.equal(r.trips, 3);
   assert.equal(r.byMode.walk.trips, 3);
 });
+
+test("allowLow keeps dull places when asked", () => {
+  const places = [{ ...mk("park", "nature", 700), wow: 0.3 }, { ...mk("tower", "views", 700, 90), wow: 1 }];
+  assert.equal(rankPlaces({ places, from, mode: "walk", minutes: 30, rand: fixed }).ranked.length, 1);
+  assert.equal(rankPlaces({ places, from, mode: "walk", minutes: 30, rand: fixed, allowLow: true }).ranked.length, 2);
+});

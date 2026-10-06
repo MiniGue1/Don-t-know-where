@@ -58,8 +58,8 @@ export function isRestrictedTags(t = {}) {
 }
 
 const MAX_RING = 400;
-const thin = (ring) => (ring.length <= MAX_RING ? ring : ring.filter((_, i) => i % Math.ceil(ring.length / MAX_RING) === 0));
-const pt = (g) => ({ lat: +g.lat.toFixed(5), lng: +g.lon.toFixed(5) });
+export const thinRing = (ring) => (ring.length <= MAX_RING ? ring : ring.filter((_, i) => i % Math.ceil(ring.length / MAX_RING) === 0));
+export const osmPt = (g) => ({ lat: +g.lat.toFixed(5), lng: +g.lon.toFixed(5) });
 const same = (a, b) => a.lat === b.lat && a.lng === b.lng;
 
 /** Join relation member ways (in any order/direction) into closed rings. */
@@ -92,10 +92,10 @@ export function parseRestricted(json) {
   const out = [];
   for (const el of json?.elements || []) {
     if (!isRestrictedTags(el.tags)) continue;
-    if (el.type === "way" && el.geometry?.length >= 4) out.push(thin(el.geometry.map(pt)));
+    if (el.type === "way" && el.geometry?.length >= 4) out.push(thinRing(el.geometry.map(osmPt)));
     else if (el.type === "relation" && el.members) {
-      const outer = el.members.filter((m) => m.type === "way" && m.role !== "inner" && m.geometry?.length).map((m) => m.geometry.map(pt));
-      for (const ring of joinRings(outer)) out.push(thin(ring));
+      const outer = el.members.filter((m) => m.type === "way" && m.role !== "inner" && m.geometry?.length).map((m) => m.geometry.map(osmPt));
+      for (const ring of joinRings(outer)) out.push(thinRing(ring));
     }
   }
   return out;
@@ -246,17 +246,11 @@ function writeCache(center, radius, data, storage, now) {
 const inflight = new Map();
 
 /**
- * Places + restricted areas around `center`: { places, restricted }.
- * Uses the 24 h cache; otherwise asks every Overpass server at once and takes the
- * first good answer (public servers are often slow). Throws if none answers in time.
+ * Run an Overpass query on every server at once and return the first good JSON answer
+ * (public servers are often slow). Throws if none answers within `timeoutMs`.
  */
-export function fetchPlaces(center, radius, { fetchImpl = globalThis.fetch, storage = globalThis.localStorage, timeoutMs = 8000, now = Date.now() } = {}) {
-  const cached = cachedPlaces(center, radius, { storage, now });
-  if (cached) return Promise.resolve(cached);
-  const key = placesCacheKey(center, radius);
-  if (inflight.has(key)) return inflight.get(key);
-
-  const body = new URLSearchParams({ data: buildQuery(center, radius) }).toString();
+export function overpassRace(query, { fetchImpl = globalThis.fetch, timeoutMs = 8000 } = {}) {
+  const body = new URLSearchParams({ data: query }).toString();
   const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
   const timer = setTimeout(() => controllers.forEach((c) => c.abort()), timeoutMs);
   const attempts = OVERPASS_ENDPOINTS.map(async (url, i) => {
@@ -271,20 +265,35 @@ export function fetchPlaces(center, radius, { fetchImpl = globalThis.fetch, stor
     if (json.remark && !json.elements?.length) throw new Error(json.remark); // server-side timeout
     return json;
   });
-  const p = Promise.any(attempts)
+  return Promise.any(attempts)
     .then((json) => {
       controllers.forEach((c) => c.abort()); // stop the slower server
-      const data = { places: parseOverpass(json), restricted: parseRestricted(json) };
-      writeCache(center, radius, data, storage, now);
-      return data;
+      return json;
     })
     .catch(() => {
       throw new Error("No Overpass server answered in time");
     })
-    .finally(() => {
-      clearTimeout(timer);
-      inflight.delete(key);
-    });
+    .finally(() => clearTimeout(timer));
+}
+
+/**
+ * Places + restricted areas around `center`: { places, restricted }.
+ * Uses the 24 h cache; otherwise asks every Overpass server at once and takes the
+ * first good answer (public servers are often slow). Throws if none answers in time.
+ */
+export function fetchPlaces(center, radius, { fetchImpl = globalThis.fetch, storage = globalThis.localStorage, timeoutMs = 8000, now = Date.now() } = {}) {
+  const cached = cachedPlaces(center, radius, { storage, now });
+  if (cached) return Promise.resolve(cached);
+  const key = placesCacheKey(center, radius);
+  if (inflight.has(key)) return inflight.get(key);
+
+  const p = overpassRace(buildQuery(center, radius), { fetchImpl, timeoutMs })
+    .then((json) => {
+      const data = { places: parseOverpass(json), restricted: parseRestricted(json) };
+      writeCache(center, radius, data, storage, now);
+      return data;
+    })
+    .finally(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
 }
